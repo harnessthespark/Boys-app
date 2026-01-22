@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   SafeAreaView,
-  Image,
   Animated,
   Modal,
   Vibration,
@@ -16,53 +15,63 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { Audio } from 'expo-av';
 
-const { width } = Dimensions.get('window');
+const { width, height } = Dimensions.get('window');
 
-// Types
-type Screen = 'home' | 'profiles' | 'maths' | 'english' | 'science' | 'activities' | 'parent' | 'calm' | 'shop' | 'stats';
+// ============================================
+// TYPES
+// ============================================
+type Screen = 'profiles' | 'planet' | 'missions' | 'mission-play' | 'build' | 'leaderboard' | 'parent';
 type AgeGroup = '5-6' | '7-8' | '9-10' | '11-12';
-type Difficulty = 'easy' | 'medium' | 'hard';
-type MathsOperation = 'addition' | 'subtraction' | 'multiplication' | 'division' | 'mixed';
-type EnglishType = 'spelling' | 'phonics' | 'vocabulary' | 'grammar';
-type ScienceType = 'animals' | 'plants' | 'body' | 'space' | 'materials';
+type MissionType = 'maths' | 'english' | 'science';
+type BiomeType = 'grass' | 'forest' | 'ocean' | 'volcano' | 'ice' | 'desert' | 'crystal' | 'space';
+type StructureType = 'house' | 'tower' | 'tree' | 'rocket' | 'bridge' | 'dome' | 'mine' | 'lab';
+type CreatureType = 'blob' | 'floater' | 'runner' | 'flyer' | 'giant';
 
-interface ChildProfile {
+interface PlanetItem {
+  id: string;
+  type: 'biome' | 'structure' | 'creature';
+  itemType: BiomeType | StructureType | CreatureType;
+  position: { x: number; y: number };
+  level: number;
+}
+
+interface PlayerProfile {
   id: string;
   name: string;
   age: number;
   ageGroup: AgeGroup;
-  avatarType: AvatarType;
-  coins: number;
+
+  // Resources
+  crystals: number;
+  artifacts: number;
+  specimens: number;
+  solarEnergy: number;
+
+  // Progress
   xp: number;
   level: number;
   streak: number;
   lastActiveDate: string;
-  evolutionStage: number; // 1-5
-  mathsStats: { correct: number; total: number; bestStreak: number };
-  englishStats: { correct: number; total: number; bestStreak: number };
-  scienceStats: { correct: number; total: number; bestStreak: number };
+
+  // Planet
+  planetName: string;
+  planetItems: PlanetItem[];
+  unlockedBiomes: BiomeType[];
+  unlockedStructures: StructureType[];
+  unlockedCreatures: CreatureType[];
+
+  // Stats
+  mathsCorrect: number;
+  englishCorrect: number;
+  scienceCorrect: number;
+  totalCorrect: number;
+  bestCombo: number;
   offScreenMinutes: number;
-  achievements: string[];
-  moodLog: { date: string; mood: string }[];
-  lastMoodCheck: string;
-}
 
-interface MoodEntry {
-  date: string;
-  mood: string;
-  note?: string;
-}
-
-interface Activity {
-  id: string;
-  name: string;
-  icon: string;
-  minutes: number;
-  coins: number;
-  verified: boolean;
-  date: string;
+  // Multiplier
+  currentCombo: number;
 }
 
 interface Question {
@@ -72,282 +81,287 @@ interface Question {
   explanation?: string;
 }
 
-// Age-appropriate content configuration
+interface PendingActivity {
+  id: string;
+  name: string;
+  icon: string;
+  minutes: number;
+  solarEnergy: number;
+  date: string;
+}
+
+// ============================================
+// GAME CONFIG
+// ============================================
+
+// Colors - Vibrant & Game-like
+const COLORS = {
+  // Backgrounds
+  space: '#0B0B1A',
+  spaceLight: '#1A1A2E',
+
+  // UI
+  primary: '#6C5CE7',
+  primaryLight: '#A29BFE',
+
+  // Resources
+  crystal: '#00D9FF',
+  artifact: '#FFD93D',
+  specimen: '#6BCB77',
+  solar: '#FF9F43',
+
+  // Subjects - Energizing
+  maths: '#FF6B6B',
+  english: '#4ECDC4',
+  science: '#A855F7',
+
+  // Feedback
+  success: '#00F5A0',
+  error: '#FF6B6B',
+  combo: '#FFD93D',
+
+  // Text
+  text: '#FFFFFF',
+  textDim: '#B0B0C0',
+
+  // Cards
+  card: '#1E1E2E',
+  cardLight: '#2A2A3E',
+};
+
+// XP needed per level
+const XP_PER_LEVEL = 100;
+
+// Shop items
+const BIOME_SHOP: { type: BiomeType; name: string; icon: string; cost: { crystals: number; solar: number } }[] = [
+  { type: 'grass', name: 'Grassland', icon: '🌿', cost: { crystals: 0, solar: 0 } },
+  { type: 'forest', name: 'Forest', icon: '🌲', cost: { crystals: 50, solar: 20 } },
+  { type: 'ocean', name: 'Ocean', icon: '🌊', cost: { crystals: 80, solar: 30 } },
+  { type: 'desert', name: 'Desert', icon: '🏜️', cost: { crystals: 100, solar: 40 } },
+  { type: 'ice', name: 'Ice Lands', icon: '❄️', cost: { crystals: 150, solar: 50 } },
+  { type: 'volcano', name: 'Volcano', icon: '🌋', cost: { crystals: 200, solar: 60 } },
+  { type: 'crystal', name: 'Crystal Caves', icon: '💎', cost: { crystals: 300, solar: 80 } },
+  { type: 'space', name: 'Space Station', icon: '🚀', cost: { crystals: 500, solar: 100 } },
+];
+
+const STRUCTURE_SHOP: { type: StructureType; name: string; icon: string; cost: { crystals: number; artifacts: number } }[] = [
+  { type: 'house', name: 'House', icon: '🏠', cost: { crystals: 20, artifacts: 5 } },
+  { type: 'tree', name: 'Magic Tree', icon: '🌳', cost: { crystals: 15, artifacts: 3 } },
+  { type: 'tower', name: 'Tower', icon: '🗼', cost: { crystals: 50, artifacts: 15 } },
+  { type: 'mine', name: 'Crystal Mine', icon: '⛏️', cost: { crystals: 80, artifacts: 20 } },
+  { type: 'lab', name: 'Science Lab', icon: '🔬', cost: { crystals: 100, artifacts: 30 } },
+  { type: 'dome', name: 'Bio Dome', icon: '🔮', cost: { crystals: 150, artifacts: 40 } },
+  { type: 'bridge', name: 'Rainbow Bridge', icon: '🌈', cost: { crystals: 200, artifacts: 50 } },
+  { type: 'rocket', name: 'Rocket', icon: '🚀', cost: { crystals: 400, artifacts: 100 } },
+];
+
+const CREATURE_SHOP: { type: CreatureType; name: string; icon: string; cost: { specimens: number } }[] = [
+  { type: 'blob', name: 'Space Blob', icon: '🫧', cost: { specimens: 10 } },
+  { type: 'floater', name: 'Floater', icon: '🎈', cost: { specimens: 25 } },
+  { type: 'runner', name: 'Zoom Runner', icon: '🦎', cost: { specimens: 40 } },
+  { type: 'flyer', name: 'Sky Dancer', icon: '🦋', cost: { specimens: 60 } },
+  { type: 'giant', name: 'Gentle Giant', icon: '🦕', cost: { specimens: 100 } },
+];
+
+// Off-screen activities
+const ACTIVITIES = [
+  { id: 'outdoor', name: 'Played Outside', icon: '🌳', solarPerMin: 3 },
+  { id: 'reading', name: 'Read a Book', icon: '📖', solarPerMin: 2 },
+  { id: 'creative', name: 'Arts & Crafts', icon: '🎨', solarPerMin: 2 },
+  { id: 'helping', name: 'Helped at Home', icon: '🏠', solarPerMin: 2 },
+  { id: 'exercise', name: 'Exercise/Sport', icon: '⚽', solarPerMin: 3 },
+  { id: 'social', name: 'Played with Friends', icon: '👫', solarPerMin: 2 },
+];
+
+// Age-appropriate questions config
 const AGE_CONFIG: Record<AgeGroup, {
   mathsRange: { min: number; max: number };
-  operations: MathsOperation[];
+  operations: string[];
   spellingWords: string[];
-  scienceTopics: string[];
 }> = {
   '5-6': {
     mathsRange: { min: 1, max: 10 },
     operations: ['addition', 'subtraction'],
-    spellingWords: ['cat', 'dog', 'sun', 'mum', 'dad', 'red', 'big', 'run', 'the', 'and', 'is', 'it', 'can', 'on', 'at'],
-    scienceTopics: ['animals', 'plants'],
+    spellingWords: ['cat', 'dog', 'sun', 'mum', 'dad', 'red', 'big', 'run', 'the', 'and'],
   },
   '7-8': {
     mathsRange: { min: 1, max: 50 },
     operations: ['addition', 'subtraction', 'multiplication'],
-    spellingWords: ['because', 'friend', 'school', 'house', 'people', 'water', 'about', 'would', 'their', 'could', 'there', 'every', 'different', 'through', 'thought'],
-    scienceTopics: ['animals', 'plants', 'materials'],
+    spellingWords: ['because', 'friend', 'school', 'house', 'people', 'water', 'about', 'would', 'their', 'could'],
   },
   '9-10': {
     mathsRange: { min: 1, max: 100 },
     operations: ['addition', 'subtraction', 'multiplication', 'division'],
-    spellingWords: ['necessary', 'separate', 'definitely', 'temperature', 'environment', 'government', 'immediately', 'interesting', 'particular', 'experience', 'knowledge', 'beautiful', 'favourite', 'important', 'remember'],
-    scienceTopics: ['animals', 'body', 'materials', 'space'],
+    spellingWords: ['necessary', 'separate', 'definitely', 'temperature', 'environment', 'government', 'immediately', 'interesting', 'particular', 'experience'],
   },
   '11-12': {
     mathsRange: { min: 1, max: 1000 },
-    operations: ['addition', 'subtraction', 'multiplication', 'division', 'mixed'],
-    spellingWords: ['accommodate', 'conscience', 'exaggerate', 'guarantee', 'independent', 'maintenance', 'occurrence', 'persistence', 'questionnaire', 'recommendation', 'surveillance', 'thorough', 'unnecessary', 'withdrawal', 'acknowledgement'],
-    scienceTopics: ['body', 'space', 'materials', 'plants'],
+    operations: ['addition', 'subtraction', 'multiplication', 'division'],
+    spellingWords: ['accommodate', 'conscience', 'exaggerate', 'guarantee', 'independent', 'maintenance', 'occurrence', 'questionnaire', 'recommendation', 'surveillance'],
   },
 };
 
-// Avatar types with evolution stages
-const AVATAR_TYPES = {
-  dino: {
-    name: 'Dino',
-    stages: [
-      { name: 'Egg', emoji: '🥚' },
-      { name: 'Baby Dino', emoji: '🐣' },
-      { name: 'Young Dino', emoji: '🦕' },
-      { name: 'Teen Dino', emoji: '🦖' },
-      { name: 'Super Dino', emoji: '👑🦖' },
-    ],
-  },
-  dragon: {
-    name: 'Dragon',
-    stages: [
-      { name: 'Egg', emoji: '🥚' },
-      { name: 'Spark', emoji: '✨' },
-      { name: 'Baby Dragon', emoji: '🐉' },
-      { name: 'Fire Dragon', emoji: '🔥🐉' },
-      { name: 'Legendary Dragon', emoji: '👑🐉' },
-    ],
-  },
-  robot: {
-    name: 'Robot',
-    stages: [
-      { name: 'Blueprint', emoji: '📋' },
-      { name: 'Parts', emoji: '⚙️' },
-      { name: 'Basic Bot', emoji: '🤖' },
-      { name: 'Smart Bot', emoji: '🦾🤖' },
-      { name: 'Super Bot', emoji: '👑🤖' },
-    ],
-  },
-  alien: {
-    name: 'Alien',
-    stages: [
-      { name: 'Signal', emoji: '📡' },
-      { name: 'UFO', emoji: '🛸' },
-      { name: 'Baby Alien', emoji: '👽' },
-      { name: 'Space Explorer', emoji: '🚀👽' },
-      { name: 'Galaxy Master', emoji: '👑👽' },
-    ],
-  },
-  pirate: {
-    name: 'Pirate',
-    stages: [
-      { name: 'Map', emoji: '🗺️' },
-      { name: 'Sailor', emoji: '⛵' },
-      { name: 'Deck Hand', emoji: '🏴‍☠️' },
-      { name: 'Captain', emoji: '🦜🏴‍☠️' },
-      { name: 'Pirate Legend', emoji: '👑🏴‍☠️' },
-    ],
-  },
-};
-
-type AvatarType = keyof typeof AVATAR_TYPES;
-
-// XP needed for each stage
-const STAGE_XP = [0, 100, 500, 1500, 5000];
-
-// Mood options for check-in
-const MOODS = [
-  { emoji: '😊', label: 'Great', color: '#7CB342' },
-  { emoji: '🙂', label: 'Good', color: '#8BC34A' },
-  { emoji: '😐', label: 'Okay', color: '#FFC107' },
-  { emoji: '😔', label: 'Sad', color: '#9E9E9E' },
-  { emoji: '😤', label: 'Frustrated', color: '#FF7043' },
-  { emoji: '😰', label: 'Worried', color: '#7986CB' },
-  { emoji: '😴', label: 'Tired', color: '#90A4AE' },
+// Science questions
+const SCIENCE_QUESTIONS: Question[] = [
+  { question: 'What planet is known as the Red Planet?', options: ['Mars', 'Venus', 'Jupiter', 'Saturn'], correctIndex: 0 },
+  { question: 'How many legs does a spider have?', options: ['8', '6', '4', '10'], correctIndex: 0 },
+  { question: 'What do plants need to make food?', options: ['Sunlight', 'Darkness', 'Music', 'Wind'], correctIndex: 0 },
+  { question: 'What is the largest planet?', options: ['Jupiter', 'Saturn', 'Earth', 'Mars'], correctIndex: 0 },
+  { question: 'What organ pumps blood?', options: ['Heart', 'Brain', 'Lungs', 'Stomach'], correctIndex: 0 },
+  { question: 'What gas do we breathe in?', options: ['Oxygen', 'Carbon dioxide', 'Nitrogen', 'Helium'], correctIndex: 0 },
+  { question: 'How many bones in adult body?', options: ['206', '100', '300', '50'], correctIndex: 0 },
+  { question: 'What is H2O?', options: ['Water', 'Salt', 'Sugar', 'Air'], correctIndex: 0 },
+  { question: 'Which animal is a mammal?', options: ['Dolphin', 'Shark', 'Salmon', 'Octopus'], correctIndex: 0 },
+  { question: 'What makes a rainbow?', options: ['Light & water', 'Wind', 'Clouds', 'Stars'], correctIndex: 0 },
 ];
 
-// Achievements
-const ACHIEVEMENTS = [
-  { id: 'first_answer', name: 'First Steps', icon: '👣', description: 'Answer your first question' },
-  { id: 'streak_3', name: 'On a Roll', icon: '🔥', description: '3 correct in a row' },
-  { id: 'streak_10', name: 'Unstoppable', icon: '⚡', description: '10 correct in a row' },
-  { id: 'maths_master', name: 'Maths Star', icon: '🧮', description: '50 maths questions correct' },
-  { id: 'word_wizard', name: 'Word Wizard', icon: '📚', description: '50 English questions correct' },
-  { id: 'science_explorer', name: 'Science Explorer', icon: '🔬', description: '50 science questions correct' },
-  { id: 'outdoor_hero', name: 'Outdoor Hero', icon: '🌳', description: '60 minutes of outdoor play' },
-  { id: 'first_evolution', name: 'Evolved!', icon: '🌟', description: 'Evolve your character for the first time' },
-  { id: 'level_5', name: 'Rising Star', icon: '⭐', description: 'Reach level 5' },
-  { id: 'level_10', name: 'Champion', icon: '🏆', description: 'Reach level 10' },
-];
+// ============================================
+// HELPER FUNCTIONS
+// ============================================
 
-// Off-screen activities
-const ACTIVITY_TYPES = [
-  { id: 'outdoor', name: 'Played Outside', icon: '🌳', coinsPerMin: 2 },
-  { id: 'reading', name: 'Read a Book', icon: '📖', coinsPerMin: 2 },
-  { id: 'creative', name: 'Arts & Crafts', icon: '🎨', coinsPerMin: 1.5 },
-  { id: 'helping', name: 'Helped at Home', icon: '🏠', coinsPerMin: 1.5 },
-  { id: 'exercise', name: 'Exercise/Sport', icon: '⚽', coinsPerMin: 2 },
-  { id: 'social', name: 'Played with Friends', icon: '👫', coinsPerMin: 1.5 },
-];
-
-// Mixed color palette: Energizing for learning, Calm for regulation
-const COLORS = {
-  // Calm base colors (soft, not overstimulating)
-  background: '#F5F7FA',
-  card: '#FFFFFF',
-  text: '#2D3436',
-  textLight: '#636E72',
-  border: '#E8EAED',
-
-  // Primary UI (gentle purple)
-  primary: '#7C6EE6',
-  secondary: '#4ECDC4',
-
-  // ENERGIZING - Quiz subjects (Roblox-inspired, vibrant)
-  maths: '#E74C3C',      // Bright Roblox red - exciting!
-  english: '#00D26A',    // Neon green - game-like
-  science: '#00A8FF',    // Electric blue - engaging
-
-  // Activities (warm but not harsh)
-  activities: '#FFB347',
-
-  // Feedback colors (clear but not jarring)
-  success: '#2ECC71',    // Bright green for correct - celebratory!
-  warning: '#F39C12',
-  error: '#E55E5E',      // Softer red for wrong - not scary
-
-  // Celebrations (gold/exciting)
-  accent: '#FFD700',     // Gold for achievements
-  celebrate: '#FF6B35',  // Orange burst for streaks
-
-  // CALM - Regulation areas (soft pastels)
-  calmBackground: '#F0E6FF',   // Soft lavender
-  calmCard: '#E8F4F8',         // Pale blue-grey
-  calmAccent: '#B8A9C9',       // Muted purple
-  calmText: '#5D5A6D',         // Soft dark
-};
-
-// Default profile
-const createDefaultProfile = (name: string, age: number, avatarType: AvatarType = 'dino'): ChildProfile => {
+const createDefaultProfile = (name: string, age: number): PlayerProfile => {
   const ageGroup: AgeGroup = age <= 6 ? '5-6' : age <= 8 ? '7-8' : age <= 10 ? '9-10' : '11-12';
   return {
     id: Date.now().toString(),
     name,
     age,
     ageGroup,
-    avatarType,
-    coins: 0,
+    crystals: 50,
+    artifacts: 10,
+    specimens: 5,
+    solarEnergy: 30,
     xp: 0,
     level: 1,
     streak: 0,
     lastActiveDate: new Date().toISOString().split('T')[0],
-    evolutionStage: 1,
-    mathsStats: { correct: 0, total: 0, bestStreak: 0 },
-    englishStats: { correct: 0, total: 0, bestStreak: 0 },
-    scienceStats: { correct: 0, total: 0, bestStreak: 0 },
+    planetName: `${name}'s World`,
+    planetItems: [
+      { id: '1', type: 'biome', itemType: 'grass', position: { x: 50, y: 50 }, level: 1 },
+    ],
+    unlockedBiomes: ['grass'],
+    unlockedStructures: [],
+    unlockedCreatures: [],
+    mathsCorrect: 0,
+    englishCorrect: 0,
+    scienceCorrect: 0,
+    totalCorrect: 0,
+    bestCombo: 0,
     offScreenMinutes: 0,
-    achievements: [],
-    moodLog: [],
-    lastMoodCheck: '',
+    currentCombo: 0,
   };
 };
 
-// Helper to get avatar emoji for current stage
-const getAvatarEmoji = (profile: ChildProfile): string => {
-  const avatarConfig = AVATAR_TYPES[profile.avatarType];
-  const stageIndex = Math.min(profile.evolutionStage - 1, avatarConfig.stages.length - 1);
-  return avatarConfig.stages[stageIndex]?.emoji || '🥚';
+const getComboMultiplier = (combo: number): number => {
+  if (combo >= 10) return 5;
+  if (combo >= 7) return 3;
+  if (combo >= 5) return 2;
+  if (combo >= 3) return 1.5;
+  return 1;
 };
 
-// Helper to get stage name
-const getStageName = (profile: ChildProfile): string => {
-  const avatarConfig = AVATAR_TYPES[profile.avatarType];
-  const stageIndex = Math.min(profile.evolutionStage - 1, avatarConfig.stages.length - 1);
-  return avatarConfig.stages[stageIndex]?.name || 'Egg';
+const getComboText = (combo: number): string => {
+  if (combo >= 10) return '🔥 UNSTOPPABLE! 5x';
+  if (combo >= 7) return '⚡ ON FIRE! 3x';
+  if (combo >= 5) return '💫 AMAZING! 2x';
+  if (combo >= 3) return '✨ Nice! 1.5x';
+  return '';
 };
+
+// ============================================
+// MAIN APP
+// ============================================
 
 export default function App() {
-  // Core state
+  // Navigation
   const [screen, setScreen] = useState<Screen>('profiles');
-  const [profiles, setProfiles] = useState<ChildProfile[]>([]);
-  const [currentProfile, setCurrentProfile] = useState<ChildProfile | null>(null);
-  const [isParentMode, setIsParentMode] = useState(false);
+  const [currentMissionType, setCurrentMissionType] = useState<MissionType>('maths');
 
-  // Profile creation
+  // Profiles
+  const [profiles, setProfiles] = useState<PlayerProfile[]>([]);
+  const [currentProfile, setCurrentProfile] = useState<PlayerProfile | null>(null);
   const [showCreateProfile, setShowCreateProfile] = useState(false);
   const [newName, setNewName] = useState('');
   const [newAge, setNewAge] = useState('');
-  const [selectedAvatar, setSelectedAvatar] = useState<AvatarType>('dino');
 
-  // Mood check-in
-  const [showMoodCheck, setShowMoodCheck] = useState(false);
-  const [selectedMood, setSelectedMood] = useState<string | null>(null);
-  const [moodNote, setMoodNote] = useState('');
-
-  // Quiz state
+  // Mission state
   const [currentQuestion, setCurrentQuestion] = useState<Question | null>(null);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [isAnswered, setIsAnswered] = useState(false);
   const [sessionCorrect, setSessionCorrect] = useState(0);
   const [sessionTotal, setSessionTotal] = useState(0);
-  const [currentStreak, setCurrentStreak] = useState(0);
-  const [showExplanation, setShowExplanation] = useState(false);
 
-  // Activity state
-  const [pendingActivities, setPendingActivities] = useState<Activity[]>([]);
-  const [selectedActivityType, setSelectedActivityType] = useState<string | null>(null);
+  // Build mode
+  const [buildCategory, setBuildCategory] = useState<'biomes' | 'structures' | 'creatures'>('biomes');
+
+  // Activities
+  const [pendingActivities, setPendingActivities] = useState<PendingActivity[]>([]);
+  const [selectedActivity, setSelectedActivity] = useState<string | null>(null);
   const [activityMinutes, setActivityMinutes] = useState('');
+  const [showActivityModal, setShowActivityModal] = useState(false);
+
+  // Parent mode
+  const [isParentMode, setIsParentMode] = useState(false);
 
   // UI state
-  const [showAchievement, setShowAchievement] = useState<string | null>(null);
+  const [showLevelUp, setShowLevelUp] = useState(false);
+  const [showReward, setShowReward] = useState<{ type: string; amount: number } | null>(null);
 
   // Animations
-  const bounceAnim = useRef(new Animated.Value(1)).current;
-  const celebrateAnim = useRef(new Animated.Value(0)).current;
+  const xpBarAnim = useRef(new Animated.Value(0)).current;
+  const comboAnim = useRef(new Animated.Value(1)).current;
+  const planetRotation = useRef(new Animated.Value(0)).current;
+  const levelUpAnim = useRef(new Animated.Value(0)).current;
 
-  // Load data on start
+  // ============================================
+  // EFFECTS
+  // ============================================
+
   useEffect(() => {
     loadProfiles();
     loadPendingActivities();
   }, []);
 
-  // Gentle bounce animation for dino
+  // Planet rotation animation
   useEffect(() => {
-    const bounce = Animated.loop(
-      Animated.sequence([
-        Animated.timing(bounceAnim, { toValue: 1.08, duration: 1500, useNativeDriver: true }),
-        Animated.timing(bounceAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
-      ])
+    const rotation = Animated.loop(
+      Animated.timing(planetRotation, {
+        toValue: 1,
+        duration: 20000,
+        useNativeDriver: true,
+      })
     );
-    bounce.start();
-    return () => bounce.stop();
+    rotation.start();
+    return () => rotation.stop();
   }, []);
 
-  // Data persistence
+  // Update XP bar when profile changes
+  useEffect(() => {
+    if (currentProfile) {
+      const xpInLevel = currentProfile.xp % XP_PER_LEVEL;
+      Animated.timing(xpBarAnim, {
+        toValue: xpInLevel / XP_PER_LEVEL,
+        duration: 500,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [currentProfile?.xp]);
+
+  // ============================================
+  // DATA PERSISTENCE
+  // ============================================
+
   const loadProfiles = async () => {
     try {
-      const saved = await AsyncStorage.getItem('learnProfiles');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setProfiles(parsed);
-      }
+      const saved = await AsyncStorage.getItem('planetProfiles');
+      if (saved) setProfiles(JSON.parse(saved));
     } catch (e) {
       console.log('Error loading profiles:', e);
     }
   };
 
-  const saveProfiles = async (newProfiles: ChildProfile[]) => {
+  const saveProfiles = async (newProfiles: PlayerProfile[]) => {
     try {
-      await AsyncStorage.setItem('learnProfiles', JSON.stringify(newProfiles));
+      await AsyncStorage.setItem('planetProfiles', JSON.stringify(newProfiles));
       setProfiles(newProfiles);
     } catch (e) {
       console.log('Error saving profiles:', e);
@@ -356,19 +370,28 @@ export default function App() {
 
   const loadPendingActivities = async () => {
     try {
-      const saved = await AsyncStorage.getItem('pendingActivities');
+      const saved = await AsyncStorage.getItem('planetActivities');
       if (saved) setPendingActivities(JSON.parse(saved));
     } catch (e) {}
   };
 
-  const savePendingActivities = async (activities: Activity[]) => {
+  const savePendingActivities = async (activities: PendingActivity[]) => {
     try {
-      await AsyncStorage.setItem('pendingActivities', JSON.stringify(activities));
+      await AsyncStorage.setItem('planetActivities', JSON.stringify(activities));
       setPendingActivities(activities);
     } catch (e) {}
   };
 
-  // Profile management
+  const updateProfile = (profile: PlayerProfile) => {
+    const updated = profiles.map(p => p.id === profile.id ? profile : p);
+    saveProfiles(updated);
+    setCurrentProfile(profile);
+  };
+
+  // ============================================
+  // PROFILE MANAGEMENT
+  // ============================================
+
   const createProfile = () => {
     if (!newName.trim() || !newAge.trim()) {
       Alert.alert('Oops!', 'Please enter a name and age');
@@ -379,19 +402,18 @@ export default function App() {
       Alert.alert('Oops!', 'Please enter an age between 4 and 14');
       return;
     }
-    const profile = createDefaultProfile(newName.trim(), age, selectedAvatar);
+
+    const profile = createDefaultProfile(newName.trim(), age);
     const updated = [...profiles, profile];
     saveProfiles(updated);
     setNewName('');
     setNewAge('');
-    setSelectedAvatar('dino');
     setShowCreateProfile(false);
     selectProfile(profile);
     Vibration.vibrate(100);
   };
 
-  const selectProfile = (profile: ChildProfile) => {
-    // Check for daily streak
+  const selectProfile = (profile: PlayerProfile) => {
     const today = new Date().toISOString().split('T')[0];
     const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
 
@@ -406,121 +428,63 @@ export default function App() {
 
     setCurrentProfile(updatedProfile);
     updateProfile(updatedProfile);
-    setScreen('home');
+    setScreen('planet');
   };
 
-  const updateProfile = (profile: ChildProfile) => {
-    const updated = profiles.map(p => p.id === profile.id ? profile : p);
-    saveProfiles(updated);
-    setCurrentProfile(profile);
-  };
+  // ============================================
+  // GAME LOGIC
+  // ============================================
 
-  const deleteProfile = (profileId: string) => {
-    Alert.alert(
-      'Delete Profile?',
-      'This will remove all progress for this profile.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            const updated = profiles.filter(p => p.id !== profileId);
-            saveProfiles(updated);
-            if (currentProfile?.id === profileId) {
-              setCurrentProfile(null);
-              setScreen('profiles');
-            }
-          },
-        },
-      ]
-    );
-  };
-
-  // XP and leveling
   const addXP = (amount: number) => {
     if (!currentProfile) return;
 
+    const oldLevel = currentProfile.level;
     const newXP = currentProfile.xp + amount;
-    const newLevel = Math.floor(newXP / 100) + 1;
+    const newLevel = Math.floor(newXP / XP_PER_LEVEL) + 1;
 
-    // Calculate evolution stage based on XP thresholds
-    let newEvolutionStage = 1;
-    for (let i = STAGE_XP.length - 1; i >= 0; i--) {
-      if (newXP >= STAGE_XP[i]) {
-        newEvolutionStage = i + 1;
-        break;
-      }
+    const updated = { ...currentProfile, xp: newXP, level: newLevel };
+
+    if (newLevel > oldLevel) {
+      // Level up!
+      setShowLevelUp(true);
+      Vibration.vibrate([100, 100, 100, 100, 100]);
+      Animated.sequence([
+        Animated.timing(levelUpAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.delay(2000),
+        Animated.timing(levelUpAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+      ]).start(() => setShowLevelUp(false));
+
+      // Bonus rewards on level up
+      updated.crystals += 25 * newLevel;
+      updated.solarEnergy += 10 * newLevel;
     }
 
-    const updated = {
-      ...currentProfile,
-      xp: newXP,
-      level: newLevel,
-      evolutionStage: Math.max(currentProfile.evolutionStage, newEvolutionStage),
-    };
-
-    // Check for achievements
-    checkAchievements(updated);
     updateProfile(updated);
   };
 
-  const addCoins = (amount: number) => {
+  const addResources = (type: 'crystals' | 'artifacts' | 'specimens', baseAmount: number) => {
     if (!currentProfile) return;
-    const updated = { ...currentProfile, coins: currentProfile.coins + amount };
+
+    const multiplier = getComboMultiplier(currentProfile.currentCombo);
+    const amount = Math.floor(baseAmount * multiplier);
+
+    const updated = { ...currentProfile, [type]: currentProfile[type] + amount };
     updateProfile(updated);
+
+    setShowReward({ type, amount });
+    setTimeout(() => setShowReward(null), 1500);
   };
 
-  const checkAchievements = (profile: ChildProfile) => {
-    const newAchievements: string[] = [];
+  // ============================================
+  // MISSION LOGIC
+  // ============================================
 
-    if (profile.mathsStats.total === 1 && !profile.achievements.includes('first_answer')) {
-      newAchievements.push('first_answer');
-    }
-    if (profile.mathsStats.bestStreak >= 3 && !profile.achievements.includes('streak_3')) {
-      newAchievements.push('streak_3');
-    }
-    if (profile.mathsStats.bestStreak >= 10 && !profile.achievements.includes('streak_10')) {
-      newAchievements.push('streak_10');
-    }
-    if (profile.mathsStats.correct >= 50 && !profile.achievements.includes('maths_master')) {
-      newAchievements.push('maths_master');
-    }
-    if (profile.englishStats.correct >= 50 && !profile.achievements.includes('word_wizard')) {
-      newAchievements.push('word_wizard');
-    }
-    if (profile.scienceStats.correct >= 50 && !profile.achievements.includes('science_explorer')) {
-      newAchievements.push('science_explorer');
-    }
-    if (profile.offScreenMinutes >= 60 && !profile.achievements.includes('outdoor_hero')) {
-      newAchievements.push('outdoor_hero');
-    }
-    if (profile.evolutionStage >= 2 && !profile.achievements.includes('first_evolution')) {
-      newAchievements.push('first_evolution');
-    }
-    if (profile.level >= 5 && !profile.achievements.includes('level_5')) {
-      newAchievements.push('level_5');
-    }
-    if (profile.level >= 10 && !profile.achievements.includes('level_10')) {
-      newAchievements.push('level_10');
-    }
-
-    if (newAchievements.length > 0) {
-      profile.achievements = [...profile.achievements, ...newAchievements];
-      setShowAchievement(newAchievements[0]);
-      Vibration.vibrate([100, 100, 100]);
-      setTimeout(() => setShowAchievement(null), 3000);
-    }
-  };
-
-  // Question generation
   const generateMathsQuestion = (): Question => {
     if (!currentProfile) return { question: '', options: [], correctIndex: 0 };
 
     const config = AGE_CONFIG[currentProfile.ageGroup];
     const { min, max } = config.mathsRange;
-    const operations = config.operations;
-    const operation = operations[Math.floor(Math.random() * operations.length)];
+    const operation = config.operations[Math.floor(Math.random() * config.operations.length)];
 
     let a: number, b: number, answer: number, questionText: string;
 
@@ -533,8 +497,8 @@ export default function App() {
         break;
       case 'subtraction':
         a = Math.floor(Math.random() * (max - min + 1)) + min;
-        b = Math.floor(Math.random() * Math.min(a, max - min + 1)) + min;
-        if (b > a) [a, b] = [b, a]; // Ensure positive result for younger kids
+        b = Math.floor(Math.random() * Math.min(a, max)) + 1;
+        if (b > a) [a, b] = [b, a];
         answer = a - b;
         questionText = `${a} - ${b} = ?`;
         break;
@@ -547,17 +511,16 @@ export default function App() {
       case 'division':
         b = Math.floor(Math.random() * 12) + 1;
         answer = Math.floor(Math.random() * 12) + 1;
-        a = b * answer; // Ensure clean division
+        a = b * answer;
         questionText = `${a} ÷ ${b} = ?`;
         break;
       default:
-        a = Math.floor(Math.random() * (max - min + 1)) + min;
-        b = Math.floor(Math.random() * (max - min + 1)) + min;
+        a = Math.floor(Math.random() * max) + 1;
+        b = Math.floor(Math.random() * max) + 1;
         answer = a + b;
         questionText = `${a} + ${b} = ?`;
     }
 
-    // Generate wrong options
     const options = [answer];
     while (options.length < 4) {
       const wrong = answer + (Math.floor(Math.random() * 10) - 5);
@@ -566,14 +529,12 @@ export default function App() {
       }
     }
 
-    // Shuffle options
     const shuffled = options.sort(() => Math.random() - 0.5);
-    const correctIndex = shuffled.indexOf(answer);
 
     return {
       question: questionText,
       options: shuffled.map(String),
-      correctIndex,
+      correctIndex: shuffled.indexOf(answer),
     };
   };
 
@@ -581,15 +542,10 @@ export default function App() {
     if (!currentProfile) return { question: '', options: [], correctIndex: 0 };
 
     const config = AGE_CONFIG[currentProfile.ageGroup];
-    const words = config.spellingWords;
-    const word = words[Math.floor(Math.random() * words.length)];
+    const word = config.spellingWords[Math.floor(Math.random() * config.spellingWords.length)];
 
-    // Create a misspelled version
     const misspellings: string[] = [];
-
-    // Common misspelling patterns
     const patterns = [
-      (w: string) => w.replace(/([aeiou])/i, (match) => match === match.toLowerCase() ? match.toUpperCase() : match.toLowerCase()).toLowerCase(),
       (w: string) => w.slice(0, -1) + w.slice(-1).repeat(2),
       (w: string) => w.slice(0, 1) + w.slice(2, 3) + w.slice(1, 2) + w.slice(3),
       (w: string) => w.replace('e', 'a'),
@@ -609,72 +565,35 @@ export default function App() {
     const shuffled = options.sort(() => Math.random() - 0.5);
 
     return {
-      question: `Which spelling is correct?`,
+      question: 'Which spelling is correct?',
       options: shuffled,
       correctIndex: shuffled.indexOf(word),
-      explanation: `The correct spelling is "${word}"`,
     };
   };
 
   const generateScienceQuestion = (): Question => {
-    if (!currentProfile) return { question: '', options: [], correctIndex: 0 };
-
-    // Science questions by topic
-    const scienceQuestions: Record<string, Question[]> = {
-      animals: [
-        { question: 'What do herbivores eat?', options: ['Plants', 'Meat', 'Fish', 'Insects'], correctIndex: 0, explanation: 'Herbivores only eat plants!' },
-        { question: 'How many legs does a spider have?', options: ['8', '6', '4', '10'], correctIndex: 0, explanation: 'Spiders have 8 legs. Insects have 6!' },
-        { question: 'What is a baby frog called?', options: ['Tadpole', 'Cub', 'Chick', 'Puppy'], correctIndex: 0 },
-        { question: 'Which animal is a mammal?', options: ['Dolphin', 'Shark', 'Salmon', 'Octopus'], correctIndex: 0, explanation: 'Dolphins are mammals - they breathe air and feed milk to their babies!' },
-        { question: 'What do bees make?', options: ['Honey', 'Milk', 'Silk', 'Wool'], correctIndex: 0 },
-      ],
-      plants: [
-        { question: 'What do plants need to grow?', options: ['Water, light & air', 'Just water', 'Just light', 'Just soil'], correctIndex: 0 },
-        { question: 'What part of the plant makes food?', options: ['Leaves', 'Roots', 'Stem', 'Flower'], correctIndex: 0, explanation: 'Leaves use sunlight to make food through photosynthesis!' },
-        { question: 'What do roots do?', options: ['Absorb water', 'Make seeds', 'Attract bees', 'Store light'], correctIndex: 0 },
-        { question: 'What is the process plants use to make food?', options: ['Photosynthesis', 'Digestion', 'Respiration', 'Evaporation'], correctIndex: 0 },
-      ],
-      body: [
-        { question: 'What organ pumps blood around your body?', options: ['Heart', 'Brain', 'Lungs', 'Stomach'], correctIndex: 0 },
-        { question: 'How many bones does an adult have?', options: ['206', '100', '50', '500'], correctIndex: 0 },
-        { question: 'What do your lungs do?', options: ['Help you breathe', 'Digest food', 'Pump blood', 'Think'], correctIndex: 0 },
-        { question: 'Which body part controls your whole body?', options: ['Brain', 'Heart', 'Stomach', 'Muscles'], correctIndex: 0 },
-        { question: 'What are your five senses?', options: ['Sight, hearing, touch, taste, smell', 'Running, jumping, walking, sitting, standing', 'Happy, sad, angry, scared, excited', 'Red, blue, green, yellow, orange'], correctIndex: 0 },
-      ],
-      space: [
-        { question: 'What is the closest star to Earth?', options: ['The Sun', 'The Moon', 'Mars', 'Polaris'], correctIndex: 0 },
-        { question: 'How many planets are in our solar system?', options: ['8', '9', '7', '10'], correctIndex: 0, explanation: 'There are 8 planets. Pluto is now called a dwarf planet!' },
-        { question: 'What planet is known as the Red Planet?', options: ['Mars', 'Venus', 'Jupiter', 'Saturn'], correctIndex: 0 },
-        { question: 'What is the largest planet?', options: ['Jupiter', 'Saturn', 'Earth', 'Neptune'], correctIndex: 0 },
-        { question: 'The Moon orbits around...', options: ['Earth', 'The Sun', 'Mars', 'Jupiter'], correctIndex: 0 },
-      ],
-      materials: [
-        { question: 'Which material is magnetic?', options: ['Iron', 'Wood', 'Plastic', 'Glass'], correctIndex: 0 },
-        { question: 'What happens to water when it freezes?', options: ['It becomes ice', 'It evaporates', 'It disappears', 'It becomes gas'], correctIndex: 0 },
-        { question: 'Which material is transparent?', options: ['Glass', 'Wood', 'Metal', 'Cardboard'], correctIndex: 0, explanation: 'Transparent means you can see through it!' },
-        { question: 'What is ice made of?', options: ['Frozen water', 'Frozen milk', 'Frozen air', 'Frozen sand'], correctIndex: 0 },
-      ],
-    };
-
-    const config = AGE_CONFIG[currentProfile.ageGroup];
-    const topic = config.scienceTopics[Math.floor(Math.random() * config.scienceTopics.length)];
-    const questions = scienceQuestions[topic] || scienceQuestions.animals;
-    const question = questions[Math.floor(Math.random() * questions.length)];
-
-    // Shuffle options while tracking correct answer
-    const correctAnswer = question.options[question.correctIndex];
-    const shuffled = [...question.options].sort(() => Math.random() - 0.5);
-
+    const q = SCIENCE_QUESTIONS[Math.floor(Math.random() * SCIENCE_QUESTIONS.length)];
+    const shuffled = [...q.options].sort(() => Math.random() - 0.5);
     return {
-      ...question,
+      ...q,
       options: shuffled,
-      correctIndex: shuffled.indexOf(correctAnswer),
+      correctIndex: shuffled.indexOf(q.options[q.correctIndex]),
     };
   };
 
-  const startQuestion = (type: 'maths' | 'english' | 'science') => {
-    let question: Question;
+  const startMission = (type: MissionType) => {
+    setCurrentMissionType(type);
+    setSessionCorrect(0);
+    setSessionTotal(0);
+    if (currentProfile) {
+      updateProfile({ ...currentProfile, currentCombo: 0 });
+    }
+    generateQuestion(type);
+    setScreen('mission-play');
+  };
 
+  const generateQuestion = (type: MissionType) => {
+    let question: Question;
     switch (type) {
       case 'maths':
         question = generateMathsQuestion();
@@ -686,14 +605,12 @@ export default function App() {
         question = generateScienceQuestion();
         break;
     }
-
     setCurrentQuestion(question);
     setSelectedAnswer(null);
     setIsAnswered(false);
-    setShowExplanation(false);
   };
 
-  const answerQuestion = (index: number, subject: 'maths' | 'english' | 'science') => {
+  const answerQuestion = (index: number) => {
     if (isAnswered || !currentQuestion || !currentProfile) return;
 
     setSelectedAnswer(index);
@@ -702,132 +619,218 @@ export default function App() {
     const isCorrect = index === currentQuestion.correctIndex;
 
     if (isCorrect) {
-      // Correct answer
       Vibration.vibrate(100);
       setSessionCorrect(prev => prev + 1);
-      setCurrentStreak(prev => prev + 1);
-      addXP(10);
-      addCoins(5);
 
-      // Celebrate animation
+      // Update combo
+      const newCombo = currentProfile.currentCombo + 1;
+      const updated = {
+        ...currentProfile,
+        currentCombo: newCombo,
+        bestCombo: Math.max(currentProfile.bestCombo, newCombo),
+        totalCorrect: currentProfile.totalCorrect + 1,
+      };
+
+      // Add subject-specific stats
+      if (currentMissionType === 'maths') updated.mathsCorrect += 1;
+      if (currentMissionType === 'english') updated.englishCorrect += 1;
+      if (currentMissionType === 'science') updated.scienceCorrect += 1;
+
+      updateProfile(updated);
+
+      // Award resources
+      if (currentMissionType === 'maths') addResources('crystals', 10);
+      if (currentMissionType === 'english') addResources('artifacts', 5);
+      if (currentMissionType === 'science') addResources('specimens', 3);
+
+      // Award XP
+      addXP(10);
+
+      // Combo animation
       Animated.sequence([
-        Animated.timing(celebrateAnim, { toValue: 1, duration: 300, useNativeDriver: true }),
-        Animated.timing(celebrateAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
+        Animated.timing(comboAnim, { toValue: 1.3, duration: 150, useNativeDriver: true }),
+        Animated.timing(comboAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
       ]).start();
+
     } else {
-      // Wrong answer
       Vibration.vibrate([50, 50, 50]);
-      setCurrentStreak(0);
-      setShowExplanation(true);
+      // Reset combo
+      updateProfile({ ...currentProfile, currentCombo: 0 });
     }
 
     setSessionTotal(prev => prev + 1);
-
-    // Update stats
-    const statsKey = `${subject}Stats` as 'mathsStats' | 'englishStats' | 'scienceStats';
-    const updated = {
-      ...currentProfile,
-      [statsKey]: {
-        correct: currentProfile[statsKey].correct + (isCorrect ? 1 : 0),
-        total: currentProfile[statsKey].total + 1,
-        bestStreak: Math.max(currentProfile[statsKey].bestStreak, isCorrect ? currentStreak + 1 : 0),
-      },
-    };
-    updateProfile(updated);
   };
 
-  // Activity management
-  const submitActivity = () => {
-    if (!selectedActivityType || !activityMinutes || !currentProfile) return;
+  // ============================================
+  // BUILD LOGIC
+  // ============================================
 
-    const minutes = parseInt(activityMinutes);
-    if (isNaN(minutes) || minutes <= 0) {
-      Alert.alert('Oops!', 'Please enter valid minutes');
+  const buyBiome = (biome: typeof BIOME_SHOP[0]) => {
+    if (!currentProfile) return;
+
+    if (currentProfile.crystals < biome.cost.crystals || currentProfile.solarEnergy < biome.cost.solar) {
+      Alert.alert('Not enough resources!', 'Complete more missions and outdoor activities.');
       return;
     }
 
-    const activityType = ACTIVITY_TYPES.find(a => a.id === selectedActivityType);
+    if (currentProfile.unlockedBiomes.includes(biome.type)) {
+      Alert.alert('Already unlocked!', 'You already have this biome.');
+      return;
+    }
+
+    const updated = {
+      ...currentProfile,
+      crystals: currentProfile.crystals - biome.cost.crystals,
+      solarEnergy: currentProfile.solarEnergy - biome.cost.solar,
+      unlockedBiomes: [...currentProfile.unlockedBiomes, biome.type],
+      planetItems: [
+        ...currentProfile.planetItems,
+        {
+          id: Date.now().toString(),
+          type: 'biome' as const,
+          itemType: biome.type,
+          position: { x: Math.random() * 80 + 10, y: Math.random() * 80 + 10 },
+          level: 1,
+        },
+      ],
+    };
+
+    updateProfile(updated);
+    Vibration.vibrate(100);
+    Alert.alert('Biome Unlocked!', `${biome.name} has been added to your planet!`);
+  };
+
+  const buyStructure = (structure: typeof STRUCTURE_SHOP[0]) => {
+    if (!currentProfile) return;
+
+    if (currentProfile.crystals < structure.cost.crystals || currentProfile.artifacts < structure.cost.artifacts) {
+      Alert.alert('Not enough resources!', 'Complete more missions to earn crystals and artifacts.');
+      return;
+    }
+
+    const updated = {
+      ...currentProfile,
+      crystals: currentProfile.crystals - structure.cost.crystals,
+      artifacts: currentProfile.artifacts - structure.cost.artifacts,
+      unlockedStructures: [...currentProfile.unlockedStructures, structure.type],
+      planetItems: [
+        ...currentProfile.planetItems,
+        {
+          id: Date.now().toString(),
+          type: 'structure' as const,
+          itemType: structure.type,
+          position: { x: Math.random() * 70 + 15, y: Math.random() * 70 + 15 },
+          level: 1,
+        },
+      ],
+    };
+
+    updateProfile(updated);
+    Vibration.vibrate(100);
+    Alert.alert('Structure Built!', `${structure.name} has been added to your planet!`);
+  };
+
+  const buyCreature = (creature: typeof CREATURE_SHOP[0]) => {
+    if (!currentProfile) return;
+
+    if (currentProfile.specimens < creature.cost.specimens) {
+      Alert.alert('Not enough specimens!', 'Complete more science missions.');
+      return;
+    }
+
+    const updated = {
+      ...currentProfile,
+      specimens: currentProfile.specimens - creature.cost.specimens,
+      unlockedCreatures: [...currentProfile.unlockedCreatures, creature.type],
+      planetItems: [
+        ...currentProfile.planetItems,
+        {
+          id: Date.now().toString(),
+          type: 'creature' as const,
+          itemType: creature.type,
+          position: { x: Math.random() * 60 + 20, y: Math.random() * 60 + 20 },
+          level: 1,
+        },
+      ],
+    };
+
+    updateProfile(updated);
+    Vibration.vibrate(100);
+    Alert.alert('Creature Added!', `${creature.name} now lives on your planet!`);
+  };
+
+  // ============================================
+  // ACTIVITY LOGIC
+  // ============================================
+
+  const submitActivity = () => {
+    if (!selectedActivity || !activityMinutes || !currentProfile) return;
+
+    const minutes = parseInt(activityMinutes);
+    if (isNaN(minutes) || minutes <= 0 || minutes > 180) {
+      Alert.alert('Oops!', 'Please enter valid minutes (1-180)');
+      return;
+    }
+
+    const activityType = ACTIVITIES.find(a => a.id === selectedActivity);
     if (!activityType) return;
 
-    const activity: Activity = {
+    const activity: PendingActivity = {
       id: Date.now().toString(),
       name: activityType.name,
       icon: activityType.icon,
       minutes,
-      coins: Math.round(minutes * activityType.coinsPerMin),
-      verified: false,
+      solarEnergy: Math.round(minutes * activityType.solarPerMin),
       date: new Date().toISOString(),
     };
 
-    const updated = [...pendingActivities, activity];
-    savePendingActivities(updated);
-
-    setSelectedActivityType(null);
+    savePendingActivities([...pendingActivities, activity]);
+    setSelectedActivity(null);
     setActivityMinutes('');
+    setShowActivityModal(false);
 
-    Alert.alert(
-      'Activity Logged!',
-      `Ask a grown-up to verify "${activityType.name}" to earn ${activity.coins} coins!`,
-      [{ text: 'OK' }]
-    );
+    Alert.alert('Activity Logged!', `Ask a parent to verify to earn ${activity.solarEnergy} Solar Energy!`);
   };
 
   const verifyActivity = (activityId: string) => {
     const activity = pendingActivities.find(a => a.id === activityId);
     if (!activity || !currentProfile) return;
 
-    // Add coins and update off-screen minutes
     const updated = {
       ...currentProfile,
-      coins: currentProfile.coins + activity.coins,
+      solarEnergy: currentProfile.solarEnergy + activity.solarEnergy,
       offScreenMinutes: currentProfile.offScreenMinutes + activity.minutes,
     };
     updateProfile(updated);
 
-    // Remove from pending
-    const remaining = pendingActivities.filter(a => a.id !== activityId);
-    savePendingActivities(remaining);
-
+    savePendingActivities(pendingActivities.filter(a => a.id !== activityId));
     Vibration.vibrate(100);
   };
 
-  const rejectActivity = (activityId: string) => {
-    const remaining = pendingActivities.filter(a => a.id !== activityId);
-    savePendingActivities(remaining);
-  };
+  // ============================================
+  // RENDER FUNCTIONS
+  // ============================================
 
-  // Navigation helpers
-  const goHome = () => {
-    setScreen('home');
-    setCurrentQuestion(null);
-    setSessionCorrect(0);
-    setSessionTotal(0);
-    setCurrentStreak(0);
-  };
-
-  // Render functions
-  const renderProfileSelect = () => (
+  const renderProfiles = () => (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Who's Learning Today?</Text>
+        <Text style={styles.headerTitle}>🪐 Planet Builders</Text>
+        <Text style={styles.headerSubtitle}>Choose your explorer</Text>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.profilesContainer}>
+      <ScrollView style={styles.content} contentContainerStyle={styles.profilesGrid}>
         {profiles.map(profile => (
           <TouchableOpacity
             key={profile.id}
             style={styles.profileCard}
             onPress={() => selectProfile(profile)}
-            onLongPress={() => deleteProfile(profile.id)}
           >
-            <Text style={styles.profileAvatar}>
-              {getAvatarEmoji(profile)}
-            </Text>
+            <Text style={styles.profilePlanet}>🌍</Text>
             <Text style={styles.profileName}>{profile.name}</Text>
-            <Text style={styles.profileAge}>Age {profile.age}</Text>
-            <View style={styles.profileStats}>
-              <Text style={styles.profileStatText}>⭐ Level {profile.level}</Text>
-              <Text style={styles.profileStatText}>🔥 {profile.streak} day streak</Text>
+            <Text style={styles.profileLevel}>Level {profile.level}</Text>
+            <View style={styles.profileStatsRow}>
+              <Text style={styles.profileStat}>💎 {profile.crystals}</Text>
+              <Text style={styles.profileStat}>☀️ {profile.solarEnergy}</Text>
             </View>
           </TouchableOpacity>
         ))}
@@ -836,8 +839,8 @@ export default function App() {
           style={[styles.profileCard, styles.addProfileCard]}
           onPress={() => setShowCreateProfile(true)}
         >
-          <Text style={styles.addProfileIcon}>➕</Text>
-          <Text style={styles.addProfileText}>Add Player</Text>
+          <Text style={styles.addIcon}>+</Text>
+          <Text style={styles.addText}>New Explorer</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -845,62 +848,38 @@ export default function App() {
       <Modal visible={showCreateProfile} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>New Player</Text>
+            <Text style={styles.modalTitle}>New Explorer</Text>
 
             <TextInput
               style={styles.input}
               placeholder="Name"
+              placeholderTextColor={COLORS.textDim}
               value={newName}
               onChangeText={setNewName}
-              autoCapitalize="words"
             />
 
             <TextInput
               style={styles.input}
               placeholder="Age (4-14)"
+              placeholderTextColor={COLORS.textDim}
               value={newAge}
               onChangeText={setNewAge}
               keyboardType="number-pad"
-              maxLength={2}
             />
-
-            <Text style={styles.avatarSelectLabel}>Choose your character:</Text>
-            <View style={styles.avatarSelectRow}>
-              {(Object.keys(AVATAR_TYPES) as AvatarType[]).map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[
-                    styles.avatarOption,
-                    selectedAvatar === type && styles.avatarOptionSelected,
-                  ]}
-                  onPress={() => setSelectedAvatar(type)}
-                >
-                  <Text style={styles.avatarOptionEmoji}>
-                    {AVATAR_TYPES[type].stages[2]?.emoji || '🥚'}
-                  </Text>
-                  <Text style={styles.avatarOptionName}>{AVATAR_TYPES[type].name}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
 
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.cancelButton]}
-                onPress={() => {
-                  setShowCreateProfile(false);
-                  setNewName('');
-                  setNewAge('');
-                  setSelectedAvatar('dino');
-                }}
+                style={[styles.modalBtn, styles.cancelBtn]}
+                onPress={() => setShowCreateProfile(false)}
               >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modalButton, styles.confirmButton]}
+                style={[styles.modalBtn, styles.confirmBtn]}
                 onPress={createProfile}
               >
-                <Text style={styles.confirmButtonText}>Create</Text>
+                <Text style={styles.confirmBtnText}>Create</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -909,181 +888,279 @@ export default function App() {
     </SafeAreaView>
   );
 
-  const renderHome = () => {
+  const renderPlanet = () => {
     if (!currentProfile) return null;
 
-    const avatarEmoji = getAvatarEmoji(currentProfile);
-    const stageName = getStageName(currentProfile);
-    const nextStageXP = STAGE_XP[currentProfile.evolutionStage] || STAGE_XP[STAGE_XP.length - 1];
-    const xpToNext = Math.max(0, nextStageXP - currentProfile.xp);
+    const spin = planetRotation.interpolate({
+      inputRange: [0, 1],
+      outputRange: ['0deg', '360deg'],
+    });
 
     return (
       <SafeAreaView style={styles.container}>
         {/* Top Bar */}
         <View style={styles.topBar}>
           <TouchableOpacity onPress={() => setScreen('profiles')}>
-            <Text style={styles.backText}>← Switch</Text>
+            <Text style={styles.backBtn}>← Back</Text>
           </TouchableOpacity>
-          <View style={styles.statsRow}>
-            <Text style={styles.statBadge}>🪙 {currentProfile.coins}</Text>
-            <Text style={styles.statBadge}>⭐ {currentProfile.xp} XP</Text>
-            <Text style={styles.statBadge}>🔥 {currentProfile.streak}</Text>
+          <Text style={styles.planetTitle}>{currentProfile.planetName}</Text>
+          <TouchableOpacity onPress={() => setScreen('leaderboard')}>
+            <Text style={styles.leaderboardBtn}>🏆</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Resource Bar */}
+        <View style={styles.resourceBar}>
+          <View style={styles.resource}>
+            <Text style={styles.resourceIcon}>💎</Text>
+            <Text style={styles.resourceValue}>{currentProfile.crystals}</Text>
+          </View>
+          <View style={styles.resource}>
+            <Text style={styles.resourceIcon}>📜</Text>
+            <Text style={styles.resourceValue}>{currentProfile.artifacts}</Text>
+          </View>
+          <View style={styles.resource}>
+            <Text style={styles.resourceIcon}>🧬</Text>
+            <Text style={styles.resourceValue}>{currentProfile.specimens}</Text>
+          </View>
+          <View style={styles.resource}>
+            <Text style={styles.resourceIcon}>☀️</Text>
+            <Text style={styles.resourceValue}>{currentProfile.solarEnergy}</Text>
           </View>
         </View>
 
-        {/* Avatar & Greeting */}
-        <View style={styles.avatarSection}>
-          <Animated.Text style={[styles.bigAvatar, { transform: [{ scale: bounceAnim }] }]}>
-            {avatarEmoji}
-          </Animated.Text>
-          <Text style={styles.greeting}>Hey {currentProfile.name}!</Text>
-          <Text style={styles.avatarStatus}>
-            {stageName} • Level {currentProfile.level}
-          </Text>
-          {xpToNext > 0 && currentProfile.evolutionStage < 5 && (
-            <Text style={styles.xpToNext}>{xpToNext} XP to evolve!</Text>
-          )}
+        {/* XP Bar */}
+        <View style={styles.xpContainer}>
+          <Text style={styles.levelText}>Level {currentProfile.level}</Text>
+          <View style={styles.xpBarBg}>
+            <Animated.View
+              style={[
+                styles.xpBarFill,
+                { width: xpBarAnim.interpolate({ inputRange: [0, 1], outputRange: ['0%', '100%'] }) },
+              ]}
+            />
+          </View>
+          <Text style={styles.xpText}>{currentProfile.xp % XP_PER_LEVEL} / {XP_PER_LEVEL} XP</Text>
         </View>
 
-        {/* Subject Buttons */}
-        <View style={styles.subjectsGrid}>
-          <TouchableOpacity
-            style={[styles.subjectCard, { backgroundColor: COLORS.maths }]}
-            onPress={() => { setScreen('maths'); startQuestion('maths'); }}
-          >
-            <Text style={styles.subjectIcon}>🧮</Text>
-            <Text style={styles.subjectName}>Maths</Text>
-            <Text style={styles.subjectProgress}>
-              {currentProfile.mathsStats.correct} correct
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.subjectCard, { backgroundColor: COLORS.english }]}
-            onPress={() => { setScreen('english'); startQuestion('english'); }}
-          >
-            <Text style={styles.subjectIcon}>📚</Text>
-            <Text style={styles.subjectName}>English</Text>
-            <Text style={styles.subjectProgress}>
-              {currentProfile.englishStats.correct} correct
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.subjectCard, { backgroundColor: COLORS.science }]}
-            onPress={() => { setScreen('science'); startQuestion('science'); }}
-          >
-            <Text style={styles.subjectIcon}>🔬</Text>
-            <Text style={styles.subjectName}>Science</Text>
-            <Text style={styles.subjectProgress}>
-              {currentProfile.scienceStats.correct} correct
-            </Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[styles.subjectCard, { backgroundColor: COLORS.activities }]}
-            onPress={() => setScreen('activities')}
-          >
-            <Text style={styles.subjectIcon}>🌳</Text>
-            <Text style={styles.subjectName}>Activities</Text>
-            <Text style={styles.subjectProgress}>
-              {currentProfile.offScreenMinutes} mins earned
-            </Text>
-          </TouchableOpacity>
+        {/* Planet View */}
+        <View style={styles.planetContainer}>
+          <Animated.View style={[styles.planet, { transform: [{ rotate: spin }] }]}>
+            {currentProfile.planetItems.map(item => (
+              <Text
+                key={item.id}
+                style={[
+                  styles.planetItem,
+                  { left: `${item.position.x}%`, top: `${item.position.y}%` },
+                ]}
+              >
+                {item.type === 'biome' && BIOME_SHOP.find(b => b.type === item.itemType)?.icon}
+                {item.type === 'structure' && STRUCTURE_SHOP.find(s => s.type === item.itemType)?.icon}
+                {item.type === 'creature' && CREATURE_SHOP.find(c => c.type === item.itemType)?.icon}
+              </Text>
+            ))}
+          </Animated.View>
         </View>
 
-        {/* Bottom Buttons */}
-        <View style={styles.bottomButtons}>
+        {/* Action Buttons */}
+        <View style={styles.actionButtons}>
           <TouchableOpacity
-            style={styles.bottomButton}
-            onPress={() => setScreen('calm')}
+            style={[styles.actionBtn, { backgroundColor: COLORS.crystal }]}
+            onPress={() => setScreen('missions')}
           >
-            <Text style={styles.bottomButtonIcon}>🌈</Text>
-            <Text style={styles.bottomButtonText}>Calm</Text>
+            <Text style={styles.actionIcon}>🎯</Text>
+            <Text style={styles.actionText}>Missions</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.bottomButton}
-            onPress={() => setScreen('stats')}
+            style={[styles.actionBtn, { backgroundColor: COLORS.artifact }]}
+            onPress={() => setScreen('build')}
           >
-            <Text style={styles.bottomButtonIcon}>📊</Text>
-            <Text style={styles.bottomButtonText}>Stats</Text>
+            <Text style={styles.actionIcon}>🔨</Text>
+            <Text style={styles.actionText}>Build</Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.bottomButton}
+            style={[styles.actionBtn, { backgroundColor: COLORS.solar }]}
+            onPress={() => setShowActivityModal(true)}
+          >
+            <Text style={styles.actionIcon}>☀️</Text>
+            <Text style={styles.actionText}>Solar</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.actionBtn, { backgroundColor: COLORS.primaryLight }]}
             onPress={() => setIsParentMode(true)}
           >
-            <Text style={styles.bottomButtonIcon}>👨‍👩‍👧</Text>
-            <Text style={styles.bottomButtonText}>Parent</Text>
+            <Text style={styles.actionIcon}>👨‍👩‍👧</Text>
+            <Text style={styles.actionText}>Parent</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Streak */}
+        {currentProfile.streak > 0 && (
+          <View style={styles.streakBadge}>
+            <Text style={styles.streakText}>🔥 {currentProfile.streak} day streak!</Text>
+          </View>
+        )}
+
+        {/* Activity Modal */}
+        <Modal visible={showActivityModal} transparent animationType="slide">
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>☀️ Collect Solar Energy</Text>
+              <Text style={styles.modalSubtitle}>What did you do offline?</Text>
+
+              <ScrollView style={styles.activityList}>
+                {ACTIVITIES.map(activity => (
+                  <TouchableOpacity
+                    key={activity.id}
+                    style={[
+                      styles.activityOption,
+                      selectedActivity === activity.id && styles.activitySelected,
+                    ]}
+                    onPress={() => setSelectedActivity(activity.id)}
+                  >
+                    <Text style={styles.activityIcon}>{activity.icon}</Text>
+                    <Text style={styles.activityName}>{activity.name}</Text>
+                    <Text style={styles.activityRate}>{activity.solarPerMin}☀️/min</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {selectedActivity && (
+                <View style={styles.minutesInput}>
+                  <Text style={styles.minutesLabel}>How many minutes?</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={activityMinutes}
+                    onChangeText={setActivityMinutes}
+                    keyboardType="number-pad"
+                    placeholder="30"
+                    placeholderTextColor={COLORS.textDim}
+                  />
+                </View>
+              )}
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.cancelBtn]}
+                  onPress={() => {
+                    setShowActivityModal(false);
+                    setSelectedActivity(null);
+                    setActivityMinutes('');
+                  }}
+                >
+                  <Text style={styles.cancelBtnText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.confirmBtn]}
+                  onPress={submitActivity}
+                >
+                  <Text style={styles.confirmBtnText}>Log Activity</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </SafeAreaView>
     );
   };
 
-  const renderQuiz = (subject: 'maths' | 'english' | 'science') => {
+  const renderMissions = () => (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setScreen('planet')}>
+          <Text style={styles.backBtn}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Choose Mission</Text>
+      </View>
+
+      <View style={styles.missionCards}>
+        <TouchableOpacity
+          style={[styles.missionCard, { backgroundColor: COLORS.maths }]}
+          onPress={() => startMission('maths')}
+        >
+          <Text style={styles.missionIcon}>💎</Text>
+          <Text style={styles.missionTitle}>Crystal Mining</Text>
+          <Text style={styles.missionDesc}>Solve maths to mine crystals</Text>
+          <Text style={styles.missionReward}>+10 💎 per correct</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.missionCard, { backgroundColor: COLORS.english }]}
+          onPress={() => startMission('english')}
+        >
+          <Text style={styles.missionIcon}>📜</Text>
+          <Text style={styles.missionTitle}>Artifact Hunt</Text>
+          <Text style={styles.missionDesc}>Spell words to find artifacts</Text>
+          <Text style={styles.missionReward}>+5 📜 per correct</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.missionCard, { backgroundColor: COLORS.science }]}
+          onPress={() => startMission('science')}
+        >
+          <Text style={styles.missionIcon}>🧬</Text>
+          <Text style={styles.missionTitle}>Specimen Research</Text>
+          <Text style={styles.missionDesc}>Answer science to collect specimens</Text>
+          <Text style={styles.missionReward}>+3 🧬 per correct</Text>
+        </TouchableOpacity>
+      </View>
+    </SafeAreaView>
+  );
+
+  const renderMissionPlay = () => {
     if (!currentQuestion || !currentProfile) return null;
 
-    const subjectColors = {
+    const missionColors = {
       maths: COLORS.maths,
       english: COLORS.english,
       science: COLORS.science,
     };
 
-    const subjectNames = {
-      maths: 'Maths',
-      english: 'English',
-      science: 'Science',
-    };
-
-    // Lighter tinted backgrounds for each subject (energizing but not overwhelming)
-    const subjectBackgrounds = {
-      maths: '#FFF5F5',     // Light red tint
-      english: '#F0FFF4',   // Light green tint
-      science: '#F0F8FF',   // Light blue tint
+    const missionBgs = {
+      maths: '#1A0A0A',
+      english: '#0A1A1A',
+      science: '#1A0A1A',
     };
 
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: subjectBackgrounds[subject] }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: missionBgs[currentMissionType] }]}>
         {/* Header */}
-        <View style={styles.quizHeader}>
-          <TouchableOpacity onPress={goHome}>
-            <Text style={styles.backText}>← Back</Text>
+        <View style={styles.missionHeader}>
+          <TouchableOpacity onPress={() => setScreen('planet')}>
+            <Text style={styles.backBtn}>← Exit</Text>
           </TouchableOpacity>
-          <Text style={[styles.quizSubject, { color: subjectColors[subject] }]}>
-            {subjectNames[subject]}
-          </Text>
-          <View style={styles.streakBadge}>
-            <Text style={styles.streakText}>🔥 {currentStreak}</Text>
-          </View>
-        </View>
 
-        {/* Session Stats */}
-        <View style={styles.sessionStats}>
-          <Text style={styles.sessionStatText}>
-            ✓ {sessionCorrect} / {sessionTotal}
-          </Text>
+          <Animated.View style={[styles.comboBadge, { transform: [{ scale: comboAnim }] }]}>
+            {currentProfile.currentCombo > 0 && (
+              <Text style={styles.comboText}>
+                {getComboText(currentProfile.currentCombo) || `${currentProfile.currentCombo}x`}
+              </Text>
+            )}
+          </Animated.View>
+
+          <Text style={styles.scoreText}>✓ {sessionCorrect}/{sessionTotal}</Text>
         </View>
 
         {/* Question */}
-        <View style={styles.questionContainer}>
+        <View style={styles.questionBox}>
           <Text style={styles.questionText}>{currentQuestion.question}</Text>
         </View>
 
         {/* Options */}
-        <View style={styles.optionsContainer}>
+        <View style={styles.optionsGrid}>
           {currentQuestion.options.map((option, index) => {
-            let optionStyle = styles.optionButton;
+            let optionStyle = styles.optionBtn;
             let textStyle = styles.optionText;
 
             if (isAnswered) {
               if (index === currentQuestion.correctIndex) {
-                optionStyle = { ...styles.optionButton, ...styles.correctOption };
-                textStyle = { ...styles.optionText, ...styles.correctOptionText };
+                optionStyle = { ...styles.optionBtn, ...styles.correctOption };
               } else if (index === selectedAnswer) {
-                optionStyle = { ...styles.optionButton, ...styles.wrongOption };
-                textStyle = { ...styles.optionText, ...styles.wrongOptionText };
+                optionStyle = { ...styles.optionBtn, ...styles.wrongOption };
               }
             }
 
@@ -1091,7 +1168,7 @@ export default function App() {
               <TouchableOpacity
                 key={index}
                 style={optionStyle}
-                onPress={() => answerQuestion(index, subject)}
+                onPress={() => answerQuestion(index)}
                 disabled={isAnswered}
               >
                 <Text style={textStyle}>{option}</Text>
@@ -1100,399 +1177,268 @@ export default function App() {
           })}
         </View>
 
-        {/* Explanation */}
-        {showExplanation && currentQuestion.explanation && (
-          <View style={styles.explanationBox}>
-            <Text style={styles.explanationText}>{currentQuestion.explanation}</Text>
-          </View>
-        )}
-
         {/* Next Button */}
         {isAnswered && (
           <TouchableOpacity
-            style={[styles.nextButton, { backgroundColor: subjectColors[subject] }]}
-            onPress={() => startQuestion(subject)}
+            style={[styles.nextBtn, { backgroundColor: missionColors[currentMissionType] }]}
+            onPress={() => generateQuestion(currentMissionType)}
           >
-            <Text style={styles.nextButtonText}>Next Question →</Text>
+            <Text style={styles.nextBtnText}>Next Question →</Text>
           </TouchableOpacity>
         )}
 
-        {/* Celebrate Animation */}
-        <Animated.View
-          style={[
-            styles.celebrateOverlay,
-            { opacity: celebrateAnim },
-          ]}
-          pointerEvents="none"
-        >
-          <Text style={styles.celebrateText}>⭐ Great Job! ⭐</Text>
-        </Animated.View>
+        {/* Reward Popup */}
+        {showReward && (
+          <View style={styles.rewardPopup}>
+            <Text style={styles.rewardText}>
+              +{showReward.amount} {showReward.type === 'crystals' ? '💎' : showReward.type === 'artifacts' ? '📜' : '🧬'}
+            </Text>
+          </View>
+        )}
       </SafeAreaView>
     );
   };
 
-  const renderActivities = () => {
+  const renderBuild = () => {
     if (!currentProfile) return null;
 
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={goHome}>
-            <Text style={styles.backText}>← Back</Text>
+          <TouchableOpacity onPress={() => setScreen('planet')}>
+            <Text style={styles.backBtn}>← Back</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Off-Screen Activities</Text>
-          <View style={{ width: 50 }} />
+          <Text style={styles.headerTitle}>🔨 Build</Text>
         </View>
 
-        <ScrollView style={styles.content}>
-          <Text style={styles.sectionTitle}>Log an Activity</Text>
-          <Text style={styles.sectionSubtitle}>
-            Earn coins for playing offline! A grown-up needs to verify.
-          </Text>
+        {/* Category Tabs */}
+        <View style={styles.categoryTabs}>
+          <TouchableOpacity
+            style={[styles.categoryTab, buildCategory === 'biomes' && styles.categoryTabActive]}
+            onPress={() => setBuildCategory('biomes')}
+          >
+            <Text style={styles.categoryTabText}>Biomes</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.categoryTab, buildCategory === 'structures' && styles.categoryTabActive]}
+            onPress={() => setBuildCategory('structures')}
+          >
+            <Text style={styles.categoryTabText}>Structures</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.categoryTab, buildCategory === 'creatures' && styles.categoryTabActive]}
+            onPress={() => setBuildCategory('creatures')}
+          >
+            <Text style={styles.categoryTabText}>Creatures</Text>
+          </TouchableOpacity>
+        </View>
 
-          <View style={styles.activityTypes}>
-            {ACTIVITY_TYPES.map(activity => (
-              <TouchableOpacity
-                key={activity.id}
-                style={[
-                  styles.activityType,
-                  selectedActivityType === activity.id && styles.activityTypeSelected,
-                ]}
-                onPress={() => setSelectedActivityType(activity.id)}
-              >
-                <Text style={styles.activityTypeIcon}>{activity.icon}</Text>
-                <Text style={styles.activityTypeName}>{activity.name}</Text>
-                <Text style={styles.activityTypeCoins}>
-                  {activity.coinsPerMin} coins/min
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
+        {/* Resources */}
+        <View style={styles.buildResources}>
+          <Text style={styles.buildResource}>💎 {currentProfile.crystals}</Text>
+          <Text style={styles.buildResource}>📜 {currentProfile.artifacts}</Text>
+          <Text style={styles.buildResource}>🧬 {currentProfile.specimens}</Text>
+          <Text style={styles.buildResource}>☀️ {currentProfile.solarEnergy}</Text>
+        </View>
 
-          {selectedActivityType && (
-            <View style={styles.activityForm}>
-              <Text style={styles.activityFormLabel}>How many minutes?</Text>
-              <TextInput
-                style={styles.minutesInput}
-                value={activityMinutes}
-                onChangeText={setActivityMinutes}
-                keyboardType="number-pad"
-                placeholder="30"
-                maxLength={3}
-              />
-              <TouchableOpacity
-                style={styles.submitActivityButton}
-                onPress={submitActivity}
-              >
-                <Text style={styles.submitActivityText}>Log Activity</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+        {/* Shop Items */}
+        <ScrollView style={styles.shopList}>
+          {buildCategory === 'biomes' && BIOME_SHOP.map(biome => (
+            <TouchableOpacity
+              key={biome.type}
+              style={[
+                styles.shopItem,
+                currentProfile.unlockedBiomes.includes(biome.type) && styles.shopItemOwned,
+              ]}
+              onPress={() => buyBiome(biome)}
+              disabled={currentProfile.unlockedBiomes.includes(biome.type)}
+            >
+              <Text style={styles.shopIcon}>{biome.icon}</Text>
+              <View style={styles.shopInfo}>
+                <Text style={styles.shopName}>{biome.name}</Text>
+                {currentProfile.unlockedBiomes.includes(biome.type) ? (
+                  <Text style={styles.shopOwned}>✓ Owned</Text>
+                ) : (
+                  <Text style={styles.shopCost}>💎 {biome.cost.crystals} + ☀️ {biome.cost.solar}</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          ))}
 
-          {pendingActivities.length > 0 && (
-            <View style={styles.pendingSection}>
-              <Text style={styles.sectionTitle}>Waiting for Verification</Text>
-              {pendingActivities.map(activity => (
-                <View key={activity.id} style={styles.pendingActivity}>
-                  <Text style={styles.pendingIcon}>{activity.icon}</Text>
-                  <View style={styles.pendingInfo}>
-                    <Text style={styles.pendingName}>{activity.name}</Text>
-                    <Text style={styles.pendingDetails}>
-                      {activity.minutes} mins • {activity.coins} coins
-                    </Text>
-                  </View>
-                  <Text style={styles.pendingStatus}>⏳</Text>
-                </View>
-              ))}
-              <Text style={styles.pendingHint}>
-                Ask a grown-up to verify in Parent Mode!
-              </Text>
-            </View>
-          )}
+          {buildCategory === 'structures' && STRUCTURE_SHOP.map(structure => (
+            <TouchableOpacity
+              key={structure.type}
+              style={styles.shopItem}
+              onPress={() => buyStructure(structure)}
+            >
+              <Text style={styles.shopIcon}>{structure.icon}</Text>
+              <View style={styles.shopInfo}>
+                <Text style={styles.shopName}>{structure.name}</Text>
+                <Text style={styles.shopCost}>💎 {structure.cost.crystals} + 📜 {structure.cost.artifacts}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
+
+          {buildCategory === 'creatures' && CREATURE_SHOP.map(creature => (
+            <TouchableOpacity
+              key={creature.type}
+              style={styles.shopItem}
+              onPress={() => buyCreature(creature)}
+            >
+              <Text style={styles.shopIcon}>{creature.icon}</Text>
+              <View style={styles.shopInfo}>
+                <Text style={styles.shopName}>{creature.name}</Text>
+                <Text style={styles.shopCost}>🧬 {creature.cost.specimens}</Text>
+              </View>
+            </TouchableOpacity>
+          ))}
         </ScrollView>
       </SafeAreaView>
     );
   };
 
-  const renderCalm = () => (
-    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.calmBackground }]}>
-      <View style={[styles.header, { backgroundColor: COLORS.calmCard, borderBottomColor: COLORS.calmAccent }]}>
-        <TouchableOpacity onPress={goHome}>
-          <Text style={[styles.backText, { color: COLORS.calmAccent }]}>← Back</Text>
+  const renderLeaderboard = () => (
+    <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setScreen('planet')}>
+          <Text style={styles.backBtn}>← Back</Text>
         </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: COLORS.calmText }]}>Calm Corner</Text>
-        <View style={{ width: 50 }} />
+        <Text style={styles.headerTitle}>🏆 Leaderboard</Text>
       </View>
 
-      <ScrollView style={styles.content} contentContainerStyle={styles.calmContent}>
-        <Text style={[styles.calmTitle, { color: COLORS.calmText }]}>Need a break?</Text>
-        <Text style={[styles.calmSubtitle, { color: COLORS.calmAccent }]}>That's okay. Try one of these:</Text>
-
-        <TouchableOpacity style={[styles.calmCard, { backgroundColor: COLORS.calmCard }]}>
-          <Text style={styles.calmCardIcon}>🌬️</Text>
-          <View style={styles.calmCardText}>
-            <Text style={[styles.calmCardTitle, { color: COLORS.calmText }]}>Deep Breaths</Text>
-            <Text style={[styles.calmCardDesc, { color: COLORS.calmAccent }]}>Breathe in for 4, hold for 4, out for 4</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.calmCard, { backgroundColor: COLORS.calmCard }]}>
-          <Text style={styles.calmCardIcon}>🖐️</Text>
-          <View style={styles.calmCardText}>
-            <Text style={[styles.calmCardTitle, { color: COLORS.calmText }]}>5-4-3-2-1</Text>
-            <Text style={[styles.calmCardDesc, { color: COLORS.calmAccent }]}>5 things you see, 4 you hear, 3 you feel...</Text>
-          </View>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={[styles.calmCard, { backgroundColor: COLORS.calmCard }]}>
-          <Text style={styles.calmCardIcon}>💪</Text>
-          <View style={styles.calmCardText}>
-            <Text style={[styles.calmCardTitle, { color: COLORS.calmText }]}>Squeeze & Release</Text>
-            <Text style={[styles.calmCardDesc, { color: COLORS.calmAccent }]}>Squeeze your hands tight, then let go</Text>
-          </View>
-        </TouchableOpacity>
-
-        <View style={[styles.calmReminder, { backgroundColor: COLORS.calmCard }]}>
-          <Text style={[styles.calmReminderText, { color: COLORS.calmText }]}>
-            It's okay to take breaks. Learning is easier when you feel calm. 💜
-          </Text>
-        </View>
+      <ScrollView style={styles.content}>
+        {profiles
+          .sort((a, b) => b.level * 1000 + b.xp - (a.level * 1000 + a.xp))
+          .map((profile, index) => (
+            <View
+              key={profile.id}
+              style={[
+                styles.leaderboardItem,
+                index === 0 && styles.leaderboardFirst,
+              ]}
+            >
+              <Text style={styles.leaderboardRank}>
+                {index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : `#${index + 1}`}
+              </Text>
+              <View style={styles.leaderboardInfo}>
+                <Text style={styles.leaderboardName}>{profile.name}</Text>
+                <Text style={styles.leaderboardStats}>
+                  Level {profile.level} • {profile.planetItems.length} items • {profile.totalCorrect} correct
+                </Text>
+              </View>
+              <Text style={styles.leaderboardXP}>{profile.xp} XP</Text>
+            </View>
+          ))}
       </ScrollView>
     </SafeAreaView>
   );
 
-  const renderStats = () => {
-    if (!currentProfile) return null;
-
-    const achievements = ACHIEVEMENTS.filter(a =>
-      currentProfile.achievements.includes(a.id)
-    );
-    const lockedAchievements = ACHIEVEMENTS.filter(a =>
-      !currentProfile.achievements.includes(a.id)
-    );
-
-    return (
+  const renderParentMode = () => (
+    <Modal visible={isParentMode} animationType="slide">
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={goHome}>
-            <Text style={styles.backText}>← Back</Text>
+          <TouchableOpacity onPress={() => setIsParentMode(false)}>
+            <Text style={styles.backBtn}>← Done</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>My Progress</Text>
-          <View style={{ width: 50 }} />
+          <Text style={styles.headerTitle}>Parent Mode</Text>
         </View>
 
         <ScrollView style={styles.content}>
-          {/* Overview */}
-          <View style={styles.statsOverview}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{currentProfile.level}</Text>
-              <Text style={styles.statLabel}>Level</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{currentProfile.xp}</Text>
-              <Text style={styles.statLabel}>Total XP</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{currentProfile.coins}</Text>
-              <Text style={styles.statLabel}>Coins</Text>
-            </View>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{currentProfile.streak}</Text>
-              <Text style={styles.statLabel}>Day Streak</Text>
-            </View>
-          </View>
+          <Text style={styles.sectionTitle}>Activities to Verify</Text>
 
-          {/* Subject Stats */}
-          <Text style={styles.sectionTitle}>Subject Progress</Text>
-
-          <View style={styles.subjectStat}>
-            <Text style={styles.subjectStatIcon}>🧮</Text>
-            <View style={styles.subjectStatInfo}>
-              <Text style={styles.subjectStatName}>Maths</Text>
-              <Text style={styles.subjectStatDetails}>
-                {currentProfile.mathsStats.correct} / {currentProfile.mathsStats.total} correct
-                {currentProfile.mathsStats.total > 0 &&
-                  ` (${Math.round(currentProfile.mathsStats.correct / currentProfile.mathsStats.total * 100)}%)`
-                }
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.subjectStat}>
-            <Text style={styles.subjectStatIcon}>📚</Text>
-            <View style={styles.subjectStatInfo}>
-              <Text style={styles.subjectStatName}>English</Text>
-              <Text style={styles.subjectStatDetails}>
-                {currentProfile.englishStats.correct} / {currentProfile.englishStats.total} correct
-                {currentProfile.englishStats.total > 0 &&
-                  ` (${Math.round(currentProfile.englishStats.correct / currentProfile.englishStats.total * 100)}%)`
-                }
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.subjectStat}>
-            <Text style={styles.subjectStatIcon}>🔬</Text>
-            <View style={styles.subjectStatInfo}>
-              <Text style={styles.subjectStatName}>Science</Text>
-              <Text style={styles.subjectStatDetails}>
-                {currentProfile.scienceStats.correct} / {currentProfile.scienceStats.total} correct
-                {currentProfile.scienceStats.total > 0 &&
-                  ` (${Math.round(currentProfile.scienceStats.correct / currentProfile.scienceStats.total * 100)}%)`
-                }
-              </Text>
-            </View>
-          </View>
-
-          {/* Achievements */}
-          <Text style={styles.sectionTitle}>Achievements</Text>
-
-          <View style={styles.achievementsGrid}>
-            {achievements.map(achievement => (
-              <View key={achievement.id} style={styles.achievement}>
-                <Text style={styles.achievementIcon}>{achievement.icon}</Text>
-                <Text style={styles.achievementName}>{achievement.name}</Text>
+          {pendingActivities.length === 0 ? (
+            <Text style={styles.emptyText}>No activities waiting</Text>
+          ) : (
+            pendingActivities.map(activity => (
+              <View key={activity.id} style={styles.verifyCard}>
+                <Text style={styles.verifyIcon}>{activity.icon}</Text>
+                <View style={styles.verifyInfo}>
+                  <Text style={styles.verifyName}>{activity.name}</Text>
+                  <Text style={styles.verifyDetails}>
+                    {activity.minutes} mins • +{activity.solarEnergy} ☀️
+                  </Text>
+                </View>
+                <View style={styles.verifyButtons}>
+                  <TouchableOpacity
+                    style={styles.verifyYes}
+                    onPress={() => verifyActivity(activity.id)}
+                  >
+                    <Text style={styles.verifyYesText}>✓</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.verifyNo}
+                    onPress={() => savePendingActivities(pendingActivities.filter(a => a.id !== activity.id))}
+                  >
+                    <Text style={styles.verifyNoText}>✗</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            ))}
-            {lockedAchievements.map(achievement => (
-              <View key={achievement.id} style={[styles.achievement, styles.achievementLocked]}>
-                <Text style={styles.achievementIconLocked}>🔒</Text>
-                <Text style={styles.achievementNameLocked}>{achievement.name}</Text>
+            ))
+          )}
+
+          {currentProfile && (
+            <>
+              <Text style={styles.sectionTitle}>{currentProfile.name}'s Stats</Text>
+              <View style={styles.parentStats}>
+                <Text style={styles.parentStat}>📊 Level {currentProfile.level} ({currentProfile.xp} XP)</Text>
+                <Text style={styles.parentStat}>💎 Maths: {currentProfile.mathsCorrect} correct</Text>
+                <Text style={styles.parentStat}>📜 English: {currentProfile.englishCorrect} correct</Text>
+                <Text style={styles.parentStat}>🧬 Science: {currentProfile.scienceCorrect} correct</Text>
+                <Text style={styles.parentStat}>☀️ Off-screen: {currentProfile.offScreenMinutes} mins</Text>
+                <Text style={styles.parentStat}>🔥 Best combo: {currentProfile.bestCombo}x</Text>
               </View>
-            ))}
-          </View>
+            </>
+          )}
         </ScrollView>
       </SafeAreaView>
-    );
-  };
+    </Modal>
+  );
 
-  const renderParentMode = () => {
-    if (!isParentMode) return null;
+  const renderLevelUp = () => (
+    <Modal visible={showLevelUp} transparent>
+      <Animated.View style={[styles.levelUpOverlay, { opacity: levelUpAnim }]}>
+        <Text style={styles.levelUpText}>⬆️ LEVEL UP! ⬆️</Text>
+        <Text style={styles.levelUpLevel}>Level {currentProfile?.level}</Text>
+        <Text style={styles.levelUpReward}>
+          +{(currentProfile?.level || 1) * 25} 💎 +{(currentProfile?.level || 1) * 10} ☀️
+        </Text>
+      </Animated.View>
+    </Modal>
+  );
 
-    return (
-      <Modal visible={isParentMode} animationType="slide">
-        <SafeAreaView style={styles.container}>
-          <View style={styles.header}>
-            <TouchableOpacity onPress={() => setIsParentMode(false)}>
-              <Text style={styles.backText}>← Done</Text>
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>Parent Mode</Text>
-            <View style={{ width: 50 }} />
-          </View>
+  // ============================================
+  // MAIN RENDER
+  // ============================================
 
-          <ScrollView style={styles.content}>
-            {/* Pending Activities */}
-            <Text style={styles.sectionTitle}>Activities to Verify</Text>
-
-            {pendingActivities.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyStateText}>No activities waiting</Text>
-              </View>
-            ) : (
-              pendingActivities.map(activity => (
-                <View key={activity.id} style={styles.verifyCard}>
-                  <View style={styles.verifyInfo}>
-                    <Text style={styles.verifyIcon}>{activity.icon}</Text>
-                    <View>
-                      <Text style={styles.verifyName}>{activity.name}</Text>
-                      <Text style={styles.verifyDetails}>
-                        {activity.minutes} minutes • {activity.coins} coins
-                      </Text>
-                    </View>
-                  </View>
-                  <View style={styles.verifyButtons}>
-                    <TouchableOpacity
-                      style={styles.verifyYes}
-                      onPress={() => verifyActivity(activity.id)}
-                    >
-                      <Text style={styles.verifyYesText}>✓ Yes</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.verifyNo}
-                      onPress={() => rejectActivity(activity.id)}
-                    >
-                      <Text style={styles.verifyNoText}>✗</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ))
-            )}
-
-            {/* Quick Stats */}
-            {currentProfile && (
-              <>
-                <Text style={styles.sectionTitle}>{currentProfile.name}'s Summary</Text>
-                <View style={styles.parentSummary}>
-                  <Text style={styles.parentSummaryItem}>
-                    📊 Level {currentProfile.level} ({currentProfile.xp} XP)
-                  </Text>
-                  <Text style={styles.parentSummaryItem}>
-                    🧮 Maths: {currentProfile.mathsStats.correct} correct
-                  </Text>
-                  <Text style={styles.parentSummaryItem}>
-                    📚 English: {currentProfile.englishStats.correct} correct
-                  </Text>
-                  <Text style={styles.parentSummaryItem}>
-                    🔬 Science: {currentProfile.scienceStats.correct} correct
-                  </Text>
-                  <Text style={styles.parentSummaryItem}>
-                    🌳 Off-screen: {currentProfile.offScreenMinutes} minutes
-                  </Text>
-                  <Text style={styles.parentSummaryItem}>
-                    🔥 {currentProfile.streak} day streak
-                  </Text>
-                </View>
-              </>
-            )}
-
-            <Text style={styles.parentTip}>
-              Tip: Let your child log activities, then verify them here. This teaches them that off-screen play is valuable too!
-            </Text>
-          </ScrollView>
-        </SafeAreaView>
-      </Modal>
-    );
-  };
-
-  const renderAchievementPopup = () => {
-    if (!showAchievement) return null;
-
-    const achievement = ACHIEVEMENTS.find(a => a.id === showAchievement);
-    if (!achievement) return null;
-
-    return (
-      <View style={styles.achievementPopup}>
-        <Text style={styles.achievementPopupIcon}>{achievement.icon}</Text>
-        <Text style={styles.achievementPopupTitle}>Achievement Unlocked!</Text>
-        <Text style={styles.achievementPopupName}>{achievement.name}</Text>
-      </View>
-    );
-  };
-
-  // Main render
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <StatusBar style="dark" />
+    <View style={styles.app}>
+      <StatusBar style="light" />
 
-      {screen === 'profiles' && renderProfileSelect()}
-      {screen === 'home' && renderHome()}
-      {screen === 'maths' && renderQuiz('maths')}
-      {screen === 'english' && renderQuiz('english')}
-      {screen === 'science' && renderQuiz('science')}
-      {screen === 'activities' && renderActivities()}
-      {screen === 'calm' && renderCalm()}
-      {screen === 'stats' && renderStats()}
+      {screen === 'profiles' && renderProfiles()}
+      {screen === 'planet' && renderPlanet()}
+      {screen === 'missions' && renderMissions()}
+      {screen === 'mission-play' && renderMissionPlay()}
+      {screen === 'build' && renderBuild()}
+      {screen === 'leaderboard' && renderLeaderboard()}
 
       {renderParentMode()}
-      {renderAchievementPopup()}
-    </GestureHandlerRootView>
+      {renderLevelUp()}
+    </View>
   );
 }
 
+// ============================================
+// STYLES
+// ============================================
+
 const styles = StyleSheet.create({
+  app: {
+    flex: 1,
+    backgroundColor: COLORS.space,
+  },
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.space,
   },
 
   // Header
@@ -1500,60 +1446,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
+    padding: 20,
+    paddingTop: 10,
   },
   headerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+    fontSize: 24,
+    fontWeight: 'bold',
     color: COLORS.text,
   },
-  backText: {
+  headerSubtitle: {
     fontSize: 16,
-    color: COLORS.primary,
+    color: COLORS.textDim,
+    textAlign: 'center',
+    marginTop: 5,
+  },
+  backBtn: {
+    fontSize: 16,
+    color: COLORS.primaryLight,
   },
 
-  // Top bar
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
-  },
-  statsRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  statBadge: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: COLORS.text,
-    backgroundColor: COLORS.background,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-
-  // Content
   content: {
     flex: 1,
     padding: 20,
   },
 
   // Profiles
-  profilesContainer: {
+  profilesGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 15,
-    paddingVertical: 20,
+    padding: 20,
   },
   profileCard: {
     width: width * 0.4,
@@ -1561,52 +1484,51 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
+    borderWidth: 2,
+    borderColor: COLORS.cardLight,
   },
-  profileAvatar: {
+  profilePlanet: {
     fontSize: 50,
     marginBottom: 10,
   },
   profileName: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: COLORS.text,
   },
-  profileAge: {
+  profileLevel: {
     fontSize: 14,
-    color: COLORS.textLight,
-    marginBottom: 8,
+    color: COLORS.primaryLight,
+    marginTop: 4,
   },
-  profileStats: {
-    alignItems: 'center',
+  profileStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 10,
   },
-  profileStatText: {
+  profileStat: {
     fontSize: 12,
-    color: COLORS.textLight,
+    color: COLORS.textDim,
   },
   addProfileCard: {
-    borderWidth: 2,
-    borderColor: COLORS.border,
     borderStyle: 'dashed',
-    backgroundColor: 'transparent',
+    borderColor: COLORS.textDim,
+    justifyContent: 'center',
   },
-  addProfileIcon: {
+  addIcon: {
     fontSize: 40,
-    marginBottom: 10,
+    color: COLORS.textDim,
   },
-  addProfileText: {
-    fontSize: 16,
-    color: COLORS.textLight,
+  addText: {
+    fontSize: 14,
+    color: COLORS.textDim,
+    marginTop: 10,
   },
 
   // Modal
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.8)',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1615,529 +1537,482 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.card,
     borderRadius: 20,
     padding: 25,
+    maxHeight: height * 0.8,
   },
   modalTitle: {
     fontSize: 22,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: COLORS.text,
     textAlign: 'center',
-    marginBottom: 20,
+    marginBottom: 10,
   },
-  input: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    padding: 15,
-    fontSize: 16,
-    marginBottom: 15,
-    backgroundColor: COLORS.background,
+  modalSubtitle: {
+    fontSize: 14,
+    color: COLORS.textDim,
+    textAlign: 'center',
+    marginBottom: 20,
   },
   modalButtons: {
     flexDirection: 'row',
     gap: 10,
-    marginTop: 10,
+    marginTop: 20,
   },
-  modalButton: {
+  modalBtn: {
     flex: 1,
     padding: 15,
     borderRadius: 12,
     alignItems: 'center',
   },
-  cancelButton: {
-    backgroundColor: COLORS.background,
+  cancelBtn: {
+    backgroundColor: COLORS.cardLight,
   },
-  cancelButtonText: {
-    color: COLORS.textLight,
-    fontSize: 16,
+  cancelBtnText: {
+    color: COLORS.textDim,
     fontWeight: '600',
   },
-  confirmButton: {
+  confirmBtn: {
     backgroundColor: COLORS.primary,
   },
-  confirmButtonText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-
-  // Dino section
-  dinoSection: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  bigDino: {
-    fontSize: 80,
-    marginBottom: 10,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: '600',
+  confirmBtnText: {
     color: COLORS.text,
-  },
-  dinoStatus: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    marginTop: 4,
-  },
-  xpToNext: {
-    fontSize: 12,
-    color: COLORS.primary,
-    marginTop: 4,
-  },
-
-  // Subjects grid
-  subjectsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    gap: 15,
-    paddingHorizontal: 10,
-  },
-  subjectCard: {
-    width: width * 0.42,
-    borderRadius: 20,
-    padding: 20,
-    alignItems: 'center',
-  },
-  subjectIcon: {
-    fontSize: 40,
-    marginBottom: 8,
-  },
-  subjectName: {
-    fontSize: 18,
     fontWeight: '600',
-    color: '#fff',
-  },
-  subjectProgress: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 4,
   },
 
-  // Bottom buttons
-  bottomButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 15,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.border,
-    backgroundColor: COLORS.card,
-  },
-  bottomButton: {
-    alignItems: 'center',
-    padding: 10,
-  },
-  bottomButtonIcon: {
-    fontSize: 24,
-    marginBottom: 4,
-  },
-  bottomButtonText: {
-    fontSize: 12,
-    color: COLORS.textLight,
+  input: {
+    backgroundColor: COLORS.cardLight,
+    borderRadius: 12,
+    padding: 15,
+    fontSize: 16,
+    color: COLORS.text,
+    marginBottom: 15,
   },
 
-  // Quiz
-  quizHeader: {
+  // Planet Screen
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    padding: 15,
+  },
+  planetTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  leaderboardBtn: {
+    fontSize: 24,
+  },
+
+  resourceBar: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    backgroundColor: COLORS.card,
+    marginHorizontal: 15,
+    borderRadius: 15,
+  },
+  resource: {
+    alignItems: 'center',
+  },
+  resourceIcon: {
+    fontSize: 20,
+  },
+  resourceValue: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginTop: 4,
+  },
+
+  xpContainer: {
     paddingHorizontal: 20,
     paddingVertical: 15,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderBottomColor: COLORS.border,
   },
-  quizSubject: {
-    fontSize: 20,
-    fontWeight: '700',
+  levelText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.primaryLight,
+    marginBottom: 5,
   },
+  xpBarBg: {
+    height: 12,
+    backgroundColor: COLORS.cardLight,
+    borderRadius: 6,
+    overflow: 'hidden',
+  },
+  xpBarFill: {
+    height: '100%',
+    backgroundColor: COLORS.primary,
+    borderRadius: 6,
+  },
+  xpText: {
+    fontSize: 12,
+    color: COLORS.textDim,
+    marginTop: 5,
+    textAlign: 'right',
+  },
+
+  planetContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  planet: {
+    width: width * 0.7,
+    height: width * 0.7,
+    borderRadius: width * 0.35,
+    backgroundColor: COLORS.cardLight,
+    position: 'relative',
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 30,
+    elevation: 10,
+  },
+  planetItem: {
+    position: 'absolute',
+    fontSize: 24,
+  },
+
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 20,
+  },
+  actionBtn: {
+    padding: 15,
+    borderRadius: 15,
+    alignItems: 'center',
+    width: 75,
+  },
+  actionIcon: {
+    fontSize: 24,
+  },
+  actionText: {
+    fontSize: 11,
+    color: COLORS.text,
+    marginTop: 5,
+    fontWeight: '600',
+  },
+
   streakBadge: {
-    backgroundColor: COLORS.accent,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    shadowColor: COLORS.celebrate,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    backgroundColor: COLORS.combo,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 15,
   },
   streakText: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#333',
+    fontSize: 12,
+    fontWeight: 'bold',
+    color: '#000',
   },
-  sessionStats: {
+
+  // Missions
+  missionCards: {
+    padding: 20,
+    gap: 15,
+  },
+  missionCard: {
+    padding: 25,
+    borderRadius: 20,
     alignItems: 'center',
-    paddingVertical: 10,
   },
-  sessionStatText: {
+  missionIcon: {
+    fontSize: 50,
+    marginBottom: 10,
+  },
+  missionTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  missionDesc: {
+    fontSize: 14,
+    color: 'rgba(255,255,255,0.8)',
+    marginTop: 5,
+  },
+  missionReward: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.text,
+    marginTop: 10,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+  },
+
+  // Mission Play
+  missionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 15,
+  },
+  comboBadge: {
+    backgroundColor: COLORS.combo,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  comboText: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+  scoreText: {
     fontSize: 16,
-    color: COLORS.textLight,
+    color: COLORS.text,
+    fontWeight: 'bold',
   },
-  questionContainer: {
+
+  questionBox: {
     backgroundColor: COLORS.card,
     borderRadius: 20,
     padding: 30,
     margin: 20,
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
   },
   questionText: {
     fontSize: 28,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: COLORS.text,
     textAlign: 'center',
   },
-  optionsContainer: {
-    paddingHorizontal: 20,
+
+  optionsGrid: {
+    padding: 20,
     gap: 12,
   },
-  optionButton: {
+  optionBtn: {
     backgroundColor: COLORS.card,
     borderRadius: 15,
     padding: 18,
     alignItems: 'center',
     borderWidth: 2,
-    borderColor: COLORS.border,
+    borderColor: COLORS.cardLight,
   },
   optionText: {
     fontSize: 20,
-    fontWeight: '500',
+    fontWeight: '600',
     color: COLORS.text,
   },
   correctOption: {
     backgroundColor: COLORS.success,
     borderColor: COLORS.success,
   },
-  correctOptionText: {
-    color: '#fff',
-  },
   wrongOption: {
     backgroundColor: COLORS.error,
     borderColor: COLORS.error,
   },
-  wrongOptionText: {
-    color: '#fff',
-  },
-  explanationBox: {
-    backgroundColor: '#FFF9E6',
-    borderRadius: 12,
-    padding: 15,
-    margin: 20,
-    marginTop: 10,
-  },
-  explanationText: {
-    fontSize: 14,
-    color: COLORS.text,
-    textAlign: 'center',
-  },
-  nextButton: {
+
+  nextBtn: {
     margin: 20,
     padding: 18,
     borderRadius: 15,
     alignItems: 'center',
   },
-  nextButtonText: {
+  nextBtnText: {
     fontSize: 18,
-    fontWeight: '600',
-    color: '#fff',
+    fontWeight: 'bold',
+    color: COLORS.text,
   },
-  celebrateOverlay: {
+
+  rewardPopup: {
     position: 'absolute',
     top: '40%',
-    left: 0,
-    right: 0,
+    alignSelf: 'center',
+    backgroundColor: COLORS.combo,
+    paddingHorizontal: 30,
+    paddingVertical: 15,
+    borderRadius: 20,
+  },
+  rewardText: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#000',
+  },
+
+  // Build
+  categoryTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 15,
+    backgroundColor: COLORS.card,
+    borderRadius: 15,
+    padding: 5,
+  },
+  categoryTab: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 12,
     alignItems: 'center',
   },
-  celebrateText: {
+  categoryTabActive: {
+    backgroundColor: COLORS.primary,
+  },
+  categoryTabText: {
+    color: COLORS.text,
+    fontWeight: '600',
+  },
+
+  buildResources: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 15,
+  },
+  buildResource: {
+    fontSize: 14,
+    color: COLORS.text,
+    fontWeight: 'bold',
+  },
+
+  shopList: {
+    flex: 1,
+    padding: 15,
+  },
+  shopItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.card,
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 10,
+  },
+  shopItemOwned: {
+    opacity: 0.5,
+  },
+  shopIcon: {
     fontSize: 36,
-    fontWeight: '800',
-    color: COLORS.accent,
-    textShadowColor: COLORS.celebrate,
-    textShadowOffset: { width: 2, height: 2 },
-    textShadowRadius: 4,
+    marginRight: 15,
+  },
+  shopInfo: {
+    flex: 1,
+  },
+  shopName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  shopCost: {
+    fontSize: 14,
+    color: COLORS.textDim,
+    marginTop: 4,
+  },
+  shopOwned: {
+    fontSize: 14,
+    color: COLORS.success,
+    marginTop: 4,
+  },
+
+  // Leaderboard
+  leaderboardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: COLORS.card,
+    borderRadius: 15,
+    padding: 15,
+    marginBottom: 10,
+  },
+  leaderboardFirst: {
+    borderWidth: 2,
+    borderColor: COLORS.combo,
+  },
+  leaderboardRank: {
+    fontSize: 24,
+    width: 50,
+    textAlign: 'center',
+  },
+  leaderboardInfo: {
+    flex: 1,
+    marginLeft: 10,
+  },
+  leaderboardName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: COLORS.text,
+  },
+  leaderboardStats: {
+    fontSize: 12,
+    color: COLORS.textDim,
+    marginTop: 4,
+  },
+  leaderboardXP: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: COLORS.primaryLight,
   },
 
   // Activities
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 8,
-    marginTop: 15,
+  activityList: {
+    maxHeight: 200,
   },
-  sectionSubtitle: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    marginBottom: 15,
-  },
-  activityTypes: {
+  activityOption: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  activityType: {
-    width: (width - 60) / 2,
-    backgroundColor: COLORS.card,
-    borderRadius: 15,
-    padding: 15,
     alignItems: 'center',
-    borderWidth: 2,
-    borderColor: COLORS.border,
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 8,
+    backgroundColor: COLORS.cardLight,
   },
-  activityTypeSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: '#F0EFFF',
+  activitySelected: {
+    backgroundColor: COLORS.primary,
   },
-  activityTypeIcon: {
-    fontSize: 30,
-    marginBottom: 5,
+  activityIcon: {
+    fontSize: 24,
+    marginRight: 12,
   },
-  activityTypeName: {
+  activityName: {
+    flex: 1,
     fontSize: 14,
-    fontWeight: '500',
     color: COLORS.text,
-    textAlign: 'center',
   },
-  activityTypeCoins: {
-    fontSize: 11,
-    color: COLORS.textLight,
-    marginTop: 2,
-  },
-  activityForm: {
-    marginTop: 20,
-    padding: 20,
-    backgroundColor: COLORS.card,
-    borderRadius: 15,
-  },
-  activityFormLabel: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.text,
-    marginBottom: 10,
+  activityRate: {
+    fontSize: 12,
+    color: COLORS.solar,
   },
   minutesInput: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    padding: 15,
-    fontSize: 20,
-    textAlign: 'center',
-    marginBottom: 15,
-    backgroundColor: COLORS.background,
+    marginTop: 15,
   },
-  submitActivityButton: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 12,
-    padding: 15,
-    alignItems: 'center',
-  },
-  submitActivityText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  pendingSection: {
-    marginTop: 25,
-  },
-  pendingActivity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 15,
+  minutesLabel: {
+    fontSize: 14,
+    color: COLORS.textDim,
     marginBottom: 10,
   },
-  pendingIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  pendingInfo: {
-    flex: 1,
-  },
-  pendingName: {
-    fontSize: 16,
-    fontWeight: '500',
-    color: COLORS.text,
-  },
-  pendingDetails: {
-    fontSize: 13,
-    color: COLORS.textLight,
-  },
-  pendingStatus: {
-    fontSize: 20,
-  },
-  pendingHint: {
-    fontSize: 13,
-    color: COLORS.textLight,
-    textAlign: 'center',
-    marginTop: 10,
-    fontStyle: 'italic',
-  },
 
-  // Calm
-  calmContent: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  calmTitle: {
-    fontSize: 24,
-    fontWeight: '600',
-    color: COLORS.text,
-    marginBottom: 8,
-  },
-  calmSubtitle: {
-    fontSize: 16,
-    color: COLORS.textLight,
-    marginBottom: 25,
-  },
-  calmCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderRadius: 15,
-    padding: 20,
-    marginBottom: 12,
-    width: '100%',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  calmCardIcon: {
-    fontSize: 36,
-    marginRight: 15,
-  },
-  calmCardText: {
-    flex: 1,
-  },
-  calmCardTitle: {
+  // Parent Mode
+  sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: 'bold',
     color: COLORS.text,
-  },
-  calmCardDesc: {
-    fontSize: 14,
-    color: COLORS.textLight,
-    marginTop: 2,
-  },
-  calmReminder: {
-    backgroundColor: '#F0EFFF',
-    borderRadius: 12,
-    padding: 20,
+    marginBottom: 15,
     marginTop: 20,
   },
-  calmReminderText: {
+  emptyText: {
     fontSize: 14,
-    color: COLORS.primary,
+    color: COLORS.textDim,
     textAlign: 'center',
-    lineHeight: 20,
+    padding: 30,
   },
-
-  // Stats
-  statsOverview: {
+  verifyCard: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    alignItems: 'center',
     backgroundColor: COLORS.card,
     borderRadius: 15,
-    padding: 20,
-    marginBottom: 20,
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: COLORS.text,
-  },
-  statLabel: {
-    fontSize: 12,
-    color: COLORS.textLight,
-    marginTop: 4,
-  },
-  subjectStat: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
     padding: 15,
     marginBottom: 10,
   },
-  subjectStatIcon: {
-    fontSize: 28,
-    marginRight: 15,
-  },
-  subjectStatInfo: {
-    flex: 1,
-  },
-  subjectStatName: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: COLORS.text,
-  },
-  subjectStatDetails: {
-    fontSize: 13,
-    color: COLORS.textLight,
-    marginTop: 2,
-  },
-  achievementsGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-    marginTop: 10,
-  },
-  achievement: {
-    width: (width - 60) / 3,
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-  },
-  achievementLocked: {
-    opacity: 0.5,
-  },
-  achievementIcon: {
-    fontSize: 28,
-    marginBottom: 4,
-  },
-  achievementIconLocked: {
-    fontSize: 28,
-    marginBottom: 4,
-  },
-  achievementName: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: COLORS.text,
-    textAlign: 'center',
-  },
-  achievementNameLocked: {
-    fontSize: 11,
-    color: COLORS.textLight,
-    textAlign: 'center',
-  },
-
-  // Parent mode
-  verifyCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 12,
-    padding: 15,
-    marginBottom: 12,
+  verifyIcon: {
+    fontSize: 30,
+    marginRight: 12,
   },
   verifyInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  verifyIcon: {
-    fontSize: 32,
-    marginRight: 12,
+    flex: 1,
   },
   verifyName: {
     fontSize: 16,
@@ -2146,93 +2021,72 @@ const styles = StyleSheet.create({
   },
   verifyDetails: {
     fontSize: 14,
-    color: COLORS.textLight,
+    color: COLORS.textDim,
+    marginTop: 4,
   },
   verifyButtons: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   verifyYes: {
-    flex: 1,
     backgroundColor: COLORS.success,
-    borderRadius: 10,
-    padding: 12,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   verifyYesText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    color: '#000',
   },
   verifyNo: {
     backgroundColor: COLORS.error,
-    borderRadius: 10,
-    padding: 12,
-    paddingHorizontal: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   verifyNoText: {
+    fontSize: 18,
     color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
   },
-  emptyState: {
-    alignItems: 'center',
-    padding: 30,
-  },
-  emptyStateText: {
-    fontSize: 16,
-    color: COLORS.textLight,
-  },
-  parentSummary: {
+  parentStats: {
     backgroundColor: COLORS.card,
-    borderRadius: 12,
+    borderRadius: 15,
     padding: 15,
-    marginTop: 10,
   },
-  parentSummaryItem: {
-    fontSize: 15,
+  parentStat: {
+    fontSize: 14,
     color: COLORS.text,
     paddingVertical: 6,
   },
-  parentTip: {
-    fontSize: 13,
-    color: COLORS.textLight,
-    textAlign: 'center',
-    marginTop: 25,
-    fontStyle: 'italic',
-    paddingHorizontal: 10,
-  },
 
-  // Achievement popup
-  achievementPopup: {
-    position: 'absolute',
-    top: 100,
-    left: 20,
-    right: 20,
-    backgroundColor: COLORS.accent,
-    borderRadius: 15,
-    padding: 20,
+  // Level Up
+  levelUpOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 10,
-    elevation: 5,
-    zIndex: 1000,
+    justifyContent: 'center',
   },
-  achievementPopupIcon: {
-    fontSize: 40,
-    marginBottom: 8,
+  levelUpText: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: COLORS.combo,
+    textShadowColor: COLORS.combo,
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 20,
   },
-  achievementPopupTitle: {
-    fontSize: 14,
+  levelUpLevel: {
+    fontSize: 60,
+    fontWeight: 'bold',
     color: COLORS.text,
-    marginBottom: 4,
+    marginTop: 20,
   },
-  achievementPopupName: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: COLORS.text,
+  levelUpReward: {
+    fontSize: 20,
+    color: COLORS.success,
+    marginTop: 20,
   },
 });
