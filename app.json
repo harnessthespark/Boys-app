@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Dave",
+    "slug": "dave-app",
+    "version": "1.0.0",
+    "orientation": "default",
+    "icon": "./assets/dave.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/dave.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FAFAFF"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.lisagills.dave",
+      "buildNumber": "8",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Dave needs access to your photos to add calming images to your Anchors and save your drawings.",
+        "NSPhotoLibraryAddUsageDescription": "Dave needs access to save your drawings and anchors to your photo library."
+      },
+      "requireFullScreen": false
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/dave.png",
+        "backgroundColor": "#FAF8FC"
+      },
+      "edgeToEdgeEnabled": true,
+      "package": "com.lisagills.dave",
+      "versionCode": 3
+    },
+    "web": {
+      "favicon": "./assets/dave.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "beac671b-4e29-43db-87c6-4cd755df1108"
+      }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/beac671b-4e29-43db-87c6-4cd755df1108"
+    }
+  }
+}
