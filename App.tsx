@@ -199,23 +199,41 @@ const ACTIVITY_TYPES = [
   { id: 'social', name: 'Played with Friends', icon: '👫', coinsPerMin: 1.5 },
 ];
 
-// Calm colors for ASD/ADHD friendly design
+// Mixed color palette: Energizing for learning, Calm for regulation
 const COLORS = {
-  background: '#F8F9FA',
+  // Calm base colors (soft, not overstimulating)
+  background: '#F5F7FA',
   card: '#FFFFFF',
-  primary: '#6C63FF',
-  secondary: '#4ECDC4',
-  accent: '#FFE66D',
-  success: '#7CB342',
-  warning: '#FFA726',
-  error: '#EF5350',
   text: '#2D3436',
   textLight: '#636E72',
-  border: '#E0E0E0',
-  maths: '#FF6B6B',
-  english: '#4ECDC4',
-  science: '#A29BFE',
-  activities: '#FFEAA7',
+  border: '#E8EAED',
+
+  // Primary UI (gentle purple)
+  primary: '#7C6EE6',
+  secondary: '#4ECDC4',
+
+  // ENERGIZING - Quiz subjects (Roblox-inspired, vibrant)
+  maths: '#E74C3C',      // Bright Roblox red - exciting!
+  english: '#00D26A',    // Neon green - game-like
+  science: '#00A8FF',    // Electric blue - engaging
+
+  // Activities (warm but not harsh)
+  activities: '#FFB347',
+
+  // Feedback colors (clear but not jarring)
+  success: '#2ECC71',    // Bright green for correct - celebratory!
+  warning: '#F39C12',
+  error: '#E55E5E',      // Softer red for wrong - not scary
+
+  // Celebrations (gold/exciting)
+  accent: '#FFD700',     // Gold for achievements
+  celebrate: '#FF6B35',  // Orange burst for streaks
+
+  // CALM - Regulation areas (soft pastels)
+  calmBackground: '#F0E6FF',   // Soft lavender
+  calmCard: '#E8F4F8',         // Pale blue-grey
+  calmAccent: '#B8A9C9',       // Muted purple
+  calmText: '#5D5A6D',         // Soft dark
 };
 
 // Default profile
@@ -1019,8 +1037,15 @@ export default function App() {
       science: 'Science',
     };
 
+    // Lighter tinted backgrounds for each subject (energizing but not overwhelming)
+    const subjectBackgrounds = {
+      maths: '#FFF5F5',     // Light red tint
+      english: '#F0FFF4',   // Light green tint
+      science: '#F0F8FF',   // Light blue tint
+    };
+
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: subjectBackgrounds[subject] }]}>
         {/* Header */}
         <View style={styles.quizHeader}>
           <TouchableOpacity onPress={goHome}>
@@ -1190,45 +1215,45 @@ export default function App() {
   };
 
   const renderCalm = () => (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
+    <SafeAreaView style={[styles.container, { backgroundColor: COLORS.calmBackground }]}>
+      <View style={[styles.header, { backgroundColor: COLORS.calmCard, borderBottomColor: COLORS.calmAccent }]}>
         <TouchableOpacity onPress={goHome}>
-          <Text style={styles.backText}>← Back</Text>
+          <Text style={[styles.backText, { color: COLORS.calmAccent }]}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Calm Corner</Text>
+        <Text style={[styles.headerTitle, { color: COLORS.calmText }]}>Calm Corner</Text>
         <View style={{ width: 50 }} />
       </View>
 
       <ScrollView style={styles.content} contentContainerStyle={styles.calmContent}>
-        <Text style={styles.calmTitle}>Need a break?</Text>
-        <Text style={styles.calmSubtitle}>That's okay. Try one of these:</Text>
+        <Text style={[styles.calmTitle, { color: COLORS.calmText }]}>Need a break?</Text>
+        <Text style={[styles.calmSubtitle, { color: COLORS.calmAccent }]}>That's okay. Try one of these:</Text>
 
-        <TouchableOpacity style={styles.calmCard}>
+        <TouchableOpacity style={[styles.calmCard, { backgroundColor: COLORS.calmCard }]}>
           <Text style={styles.calmCardIcon}>🌬️</Text>
           <View style={styles.calmCardText}>
-            <Text style={styles.calmCardTitle}>Deep Breaths</Text>
-            <Text style={styles.calmCardDesc}>Breathe in for 4, hold for 4, out for 4</Text>
+            <Text style={[styles.calmCardTitle, { color: COLORS.calmText }]}>Deep Breaths</Text>
+            <Text style={[styles.calmCardDesc, { color: COLORS.calmAccent }]}>Breathe in for 4, hold for 4, out for 4</Text>
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.calmCard}>
+        <TouchableOpacity style={[styles.calmCard, { backgroundColor: COLORS.calmCard }]}>
           <Text style={styles.calmCardIcon}>🖐️</Text>
           <View style={styles.calmCardText}>
-            <Text style={styles.calmCardTitle}>5-4-3-2-1</Text>
-            <Text style={styles.calmCardDesc}>5 things you see, 4 you hear, 3 you feel...</Text>
+            <Text style={[styles.calmCardTitle, { color: COLORS.calmText }]}>5-4-3-2-1</Text>
+            <Text style={[styles.calmCardDesc, { color: COLORS.calmAccent }]}>5 things you see, 4 you hear, 3 you feel...</Text>
           </View>
         </TouchableOpacity>
 
-        <TouchableOpacity style={styles.calmCard}>
+        <TouchableOpacity style={[styles.calmCard, { backgroundColor: COLORS.calmCard }]}>
           <Text style={styles.calmCardIcon}>💪</Text>
           <View style={styles.calmCardText}>
-            <Text style={styles.calmCardTitle}>Squeeze & Release</Text>
-            <Text style={styles.calmCardDesc}>Squeeze your hands tight, then let go</Text>
+            <Text style={[styles.calmCardTitle, { color: COLORS.calmText }]}>Squeeze & Release</Text>
+            <Text style={[styles.calmCardDesc, { color: COLORS.calmAccent }]}>Squeeze your hands tight, then let go</Text>
           </View>
         </TouchableOpacity>
 
-        <View style={styles.calmReminder}>
-          <Text style={styles.calmReminderText}>
+        <View style={[styles.calmReminder, { backgroundColor: COLORS.calmCard }]}>
+          <Text style={[styles.calmReminderText, { color: COLORS.calmText }]}>
             It's okay to take breaks. Learning is easier when you feel calm. 💜
           </Text>
         </View>
@@ -1728,13 +1753,19 @@ const styles = StyleSheet.create({
   },
   streakBadge: {
     backgroundColor: COLORS.accent,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 15,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    shadowColor: COLORS.celebrate,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   streakText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#333',
   },
   sessionStats: {
     alignItems: 'center',
@@ -1824,12 +1855,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   celebrateText: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: COLORS.success,
-    textShadowColor: 'rgba(0,0,0,0.1)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+    fontSize: 36,
+    fontWeight: '800',
+    color: COLORS.accent,
+    textShadowColor: COLORS.celebrate,
+    textShadowOffset: { width: 2, height: 2 },
+    textShadowRadius: 4,
   },
 
   // Activities
