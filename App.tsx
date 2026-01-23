@@ -665,7 +665,7 @@ export default function App() {
   // BUILD LOGIC
   // ============================================
 
-  const buyBiome = (biome: typeof BIOME_SHOP[0]) => {
+  const buyBiome = (biome: any) => {
     if (!currentProfile) return;
 
     if (currentProfile.crystals < biome.cost.crystals || currentProfile.solarEnergy < biome.cost.solar) {
@@ -700,7 +700,7 @@ export default function App() {
     Alert.alert('Biome Unlocked!', `${biome.name} has been added to your planet!`);
   };
 
-  const buyStructure = (structure: typeof STRUCTURE_SHOP[0]) => {
+  const buyStructure = (structure: any) => {
     if (!currentProfile) return;
 
     if (currentProfile.crystals < structure.cost.crystals || currentProfile.artifacts < structure.cost.artifacts) {
@@ -730,7 +730,7 @@ export default function App() {
     Alert.alert('Structure Built!', `${structure.name} has been added to your planet!`);
   };
 
-  const buyCreature = (creature: typeof CREATURE_SHOP[0]) => {
+  const buyCreature = (creature: any) => {
     if (!currentProfile) return;
 
     if (currentProfile.specimens < creature.cost.specimens) {
