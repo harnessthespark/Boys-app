@@ -13,9 +13,9 @@ import {
   Alert,
   Dimensions,
 } from 'react-native';
-import { StatusBar } from 'expo-status-bar';
+// StatusBar removed for Snack compatibility
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Audio } from 'expo-av';
+// Audio removed for Snack compatibility
 
 const { width, height } = Dimensions.get('window');
 
@@ -1412,7 +1412,6 @@ export default function App() {
 
   return (
     <View style={styles.app}>
-      <StatusBar style="light" />
 
       {screen === 'profiles' && renderProfiles()}
       {screen === 'planet' && renderPlanet()}
